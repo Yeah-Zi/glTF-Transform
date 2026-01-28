@@ -1,0 +1,3 @@
+[submodule "TextureAtlas"]
+	path = TextureAtlas
+	url = git@github.com:Yeah-Zi/TextureAtlas.git
