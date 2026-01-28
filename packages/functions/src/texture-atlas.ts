@@ -1,48 +1,29 @@
 import {
 	Document,
-	ImageUtils,
-	Material,
-	Texture,
-	TextureInfo,
 	type Transform,
 	type vec2,
+	type Material,
+	type Texture,
+	ImageUtils,
 } from '@gltf-transform/core';
 import { KHRTextureTransform } from '@gltf-transform/extensions';
-import {
-	assignDefaults,
-	createTransform,
-	ceilPowerOfTwo,
-	fitWithin,
-	floorPowerOfTwo,
-	isUsed,
-} from './utils.js';
-import { getTextureColorSpace } from './get-texture-color-space.js';
-import { listTextureSlots } from './list-texture-slots.js';
-
-const NAME = 'texture-atlas';
-
+import type sharp from 'sharp';
+import { assignDefaults, createTransform, fitPowerOfTwo, fitWithin, isUsed } from './utils.js';
+const NAME = 'textureAtlas';
 type AtlasType = 'baseColor' | 'normal' | 'metallicRoughness' | 'occlusion' | 'emissive';
-type RemapMode = 'texture_transform' | 'geometry';
-
 export interface TextureAtlasOptions {
+	encoder?: unknown;
 	types?: AtlasType[];
 	maxSize?: number;
 	padding?: number;
 	rotate?: boolean;
 	pow2?: boolean;
 	shrink?: boolean;
-	remap?: RemapMode;
-	filter?: { include?: RegExp | null; exclude?: RegExp | null };
-	format?: { mimeType?: 'image/png' | 'image/webp' | 'image/avif' };
-	gutterStrategy?: 'duplicate-edge';
-	encoder?: unknown;
-	limitInputPixels?: boolean;
+	remap?: 'texture_transform' | 'geometry';
+	format?: { mimeType: string };
 }
-
-const DEFAULTS: Required<Omit<TextureAtlasOptions, 'filter' | 'format' | 'encoder'>> & {
-	filter: { include: RegExp | null; exclude: RegExp | null };
-	format: { mimeType: 'image/png' };
-} = {
+const DEFAULTS: Required<Pick<TextureAtlasOptions, 'types' | 'maxSize' | 'padding' | 'rotate' | 'pow2' | 'shrink' | 'remap'>> &
+	Pick<TextureAtlasOptions, 'format' | 'encoder'> = {
 	types: ['baseColor', 'normal', 'metallicRoughness', 'occlusion', 'emissive'],
 	maxSize: 4096,
 	padding: 2,
@@ -50,302 +31,198 @@ const DEFAULTS: Required<Omit<TextureAtlasOptions, 'filter' | 'format' | 'encode
 	pow2: true,
 	shrink: true,
 	remap: 'texture_transform',
-	filter: { include: null, exclude: null },
 	format: { mimeType: 'image/png' },
-	gutterStrategy: 'duplicate-edge',
-	limitInputPixels: true,
+	encoder: undefined,
 };
-
-interface AtlasItem {
+interface Sprite {
+	material: Material;
 	texture: Texture;
-	width: number;
-	height: number;
-	buffer: Uint8Array<ArrayBuffer>;
-	type: AtlasType;
+	size: vec2;
+	image: Uint8Array;
+}
+interface Placement {
 	page: number;
 	x: number;
 	y: number;
 	w: number;
 	h: number;
 }
-
-interface AtlasPage {
-	type: AtlasType;
-	index: number;
-	width: number;
-	height: number;
-	items: AtlasItem[];
-	imageBuffer?: Uint8Array<ArrayBuffer>;
+function pack(sprites: Sprite[], maxSize: number, padding: number): { placements: Placement[]; pages: { width: number; height: number }[] } {
+	const placements: Placement[] = [];
+	const pages: { width: number; height: number }[] = [];
+	let page = 0;
+	let x = padding;
+	let y = padding;
+	let rowH = 0;
+	let usedW = 0;
+	let usedH = 0;
+	for (const s of sprites) {
+		const w = s.size[0];
+		const h = s.size[1];
+		if (w > maxSize || h > maxSize) {
+			throw new Error(`${NAME}: sprite exceeds maxSize (${w}x${h} > ${maxSize}).`);
+		}
+		if (x + w + padding > maxSize) {
+			x = padding;
+			y += rowH + padding;
+			rowH = 0;
+		}
+		if (y + h + padding > maxSize) {
+			pages.push({ width: Math.max(usedW + padding, 1), height: Math.max(usedH + padding, 1) });
+			page++;
+			x = padding;
+			y = padding;
+			rowH = 0;
+			usedW = 0;
+			usedH = 0;
+		}
+		placements.push({ page, x, y, w, h });
+		x += w + padding;
+		rowH = Math.max(rowH, h);
+		usedW = Math.max(usedW, x);
+		usedH = Math.max(usedH, y + h);
+	}
+	pages.push({ width: Math.max(usedW + padding, 1), height: Math.max(usedH + padding, 1) });
+	return { placements, pages };
 }
-
-function detectTypeBySlots(slots: string[], colorSpace: 'srgb' | null): AtlasType | null {
-	if (slots.find((s) => s.toLowerCase().includes('basecolor'))) return 'baseColor';
-	if (slots.find((s) => s.toLowerCase().includes('emissive'))) return 'emissive';
-	if (slots.find((s) => s.toLowerCase().includes('normal'))) return 'normal';
-	if (slots.find((s) => s.toLowerCase().includes('metallicroughness'))) return 'metallicRoughness';
-	if (slots.find((s) => s.toLowerCase().includes('occlusion'))) return 'occlusion';
-	// Fallback by color space: srgb → baseColor-like
-	if (colorSpace === 'srgb') return 'baseColor';
-	return null;
+function getSlot(material: Material, type: AtlasType): { texture: Texture | null; set: (t: Texture | null) => Material; info: ReturnType<Material['getBaseColorTextureInfo']> | null } {
+	switch (type) {
+		case 'baseColor':
+			return { texture: material.getBaseColorTexture(), set: (t) => material.setBaseColorTexture(t), info: material.getBaseColorTextureInfo() };
+		case 'normal':
+			return { texture: material.getNormalTexture(), set: (t) => material.setNormalTexture(t), info: material.getNormalTextureInfo() };
+		case 'metallicRoughness':
+			return { texture: material.getMetallicRoughnessTexture(), set: (t) => material.setMetallicRoughnessTexture(t), info: material.getMetallicRoughnessTextureInfo() };
+		case 'occlusion':
+			return { texture: material.getOcclusionTexture(), set: (t) => material.setOcclusionTexture(t), info: material.getOcclusionTextureInfo() };
+		case 'emissive':
+			return { texture: material.getEmissiveTexture(), set: (t) => material.setEmissiveTexture(t), info: material.getEmissiveTextureInfo() };
+	}
 }
-
-function computeUV(x: number, y: number, drawW: number, drawH: number, atlasW: number, atlasH: number): vec2[] {
-	const sx = x / atlasW;
-	const sy = y / atlasH;
-	const sw = drawW / atlasW;
-	const sh = drawH / atlasH;
-	// Returns [offset, scale]
-	return [
-		[sx, sy],
-		[sw, sh],
-	];
+async function encodeToFormat(encoder: typeof sharp | null, image: Uint8Array, srcMime: string, dstMime: string): Promise<Uint8Array> {
+	if (!encoder || srcMime === dstMime) return image;
+	const fmt = dstMime.split('/').pop();
+	const instance = encoder(image);
+	switch (fmt) {
+		case 'png':
+			return (await instance.png().toBuffer()) as unknown as Uint8Array;
+		case 'webp':
+			return (await instance.webp().toBuffer()) as unknown as Uint8Array;
+		case 'avif':
+			return (await instance.avif().toBuffer()) as unknown as Uint8Array;
+		default:
+			return image;
+	}
 }
-
-function isSupportedMime(mime: string | null): boolean {
-	return mime === 'image/png' || mime === 'image/jpeg' || mime === 'image/webp' || mime === 'image/avif';
-}
-
-export function textureAtlas(_options: TextureAtlasOptions = {}): Transform {
+export function textureAtlas(_options: TextureAtlasOptions): Transform {
 	const options = assignDefaults(DEFAULTS, _options);
-
 	return createTransform(NAME, async (document: Document): Promise<void> => {
 		const logger = document.getLogger();
-		const encoder = options.encoder as typeof import('sharp') | undefined;
-
-		if (!encoder) {
-			throw new Error(`${NAME}: dependency required — install "sharp" and pass { encoder }.`);
-		}
-
-		if (options.remap === 'geometry') {
-			logger.warn(`${NAME}: remap="geometry" not implemented, falling back to "texture_transform".`);
-		}
-
-		const transformExt = document.createExtension(KHRTextureTransform).setRequired(true);
-
-		// Collect candidate textures by type.
-		const textures = document.getRoot().listTextures();
-		const candidates: Map<AtlasType, Texture[]> = new Map();
-		for (const t of textures) {
-			const colorSpace = getTextureColorSpace(t);
-			const slots = listTextureSlots(t);
-			const type = detectTypeBySlots(slots, colorSpace);
-			if (!type || !options.types.includes(type)) continue;
-
-			const label = t.getURI() || t.getName() || '';
-			const include = options.filter.include;
-			const exclude = options.filter.exclude;
-			if (include && !(label.match(include) || slots.find((s) => s.match(include)))) continue;
-			if (exclude && (label.match(exclude) || slots.find((s) => s.match(exclude)))) continue;
-
-			if (!isSupportedMime(t.getMimeType())) {
-				logger.warn(`${NAME}: Skipping unsupported texture type "${t.getMimeType()}".`);
-				continue;
-			}
-			if (!candidates.has(type)) candidates.set(type, []);
-			candidates.get(type)!.push(t);
-		}
-
-		// 使用 TextureAtlas/MaxRectsBinPack 打包并用 Sharp 合成。
-		const { createRequire } = await import('node:module');
-		const require = createRequire(import.meta.url);
-		// eslint-disable-next-line @typescript-eslint/no-var-requires
-		const {
-			MaxRectsBinPack,
-			BestAreaFit,
-			BestShortSideFit,
-			BestLongSideFit,
-			BottomLeftRule,
-			ContactPointRule,
-		} = require('../../../TextureAtlas/MaxRectsBinPack/build/MaxRectsBinPack.js');
-
-		const STRATEGY = 'BestAreaFit';
-		const METHOD =
-			STRATEGY === 'BestShortSideFit'
-				? BestShortSideFit
-				: STRATEGY === 'BestLongSideFit'
-					? BestLongSideFit
-					: STRATEGY === 'BottomLeftRule'
-						? BottomLeftRule
-						: STRATEGY === 'ContactPointRule'
-							? ContactPointRule
-							: BestAreaFit;
-
-		const allPages: { pageTex: Texture; type: AtlasType; index: number; width: number; height: number; items: { name: string; texture: Texture; uv: { x: number; y: number; w: number; h: number }; rotated: boolean }[] }[] = [];
-
+		const encoder = options.encoder as typeof sharp | null;
+		const useTextureTransform = options.remap === 'texture_transform';
+		const transformExt = useTextureTransform ? document.createExtension(KHRTextureTransform).setRequired(true) : null;
 		for (const type of options.types) {
-			const list = candidates.get(type) || [];
-			if (list.length === 0) continue;
-
-			const images = list
-				.map((tex, i) => {
-					const image = tex.getImage();
-					const size = tex.getSize() || ImageUtils.getSize(image!, tex.getMimeType());
-					if (!image || !size) {
-						logger.warn(`${NAME}: Skipping unreadable texture.`);
-						return null;
-					}
-					if (size[0] + options.padding * 2 > options.maxSize || size[1] + options.padding * 2 > options.maxSize) {
-						logger.warn(`${NAME}: Texture exceeds maxSize, skipping (${size[0]}x${size[1]}).`);
-						return null;
-					}
-					const label = tex.getName() || tex.getURI() || `texture_${i}`;
-					return { name: String(label), buffer: Buffer.from(image), width: size[0], height: size[1], tex };
-				})
-				.filter(Boolean) as { name: string; buffer: Buffer; width: number; height: number; tex: Texture }[];
-
-			let atlasIndex = 0;
-			let remaining = images
-				.map((i) => ({ ...i, paddedW: i.width + options.padding * 2, paddedH: i.height + options.padding * 2 }))
-				.sort((a, b) => Math.max(b.paddedW, b.paddedH) - Math.max(a.paddedW, a.paddedH));
-
-			while (remaining.length > 0) {
-				const packer = new MaxRectsBinPack(options.maxSize, options.maxSize, !!options.rotate);
-				const placed: {
-					name: string;
-					texture: Texture;
-					drawX: number;
-					drawY: number;
-					drawW: number;
-					drawH: number;
-					rotated: boolean;
-				}[] = [];
-				const notPlaced: typeof remaining = [];
-
-				for (const rect of remaining) {
-					const node = packer.insert(rect.paddedW, rect.paddedH, METHOD);
-					if (!node || node.height === 0) {
-						notPlaced.push(rect);
+			const sprites: Sprite[] = [];
+			for (const material of document.getRoot().listMaterials()) {
+				const { texture } = getSlot(material, type);
+				if (!texture) continue;
+				const image = texture.getImage();
+				const mimeType = texture.getMimeType();
+				if (!image || !mimeType) continue;
+				const size = ImageUtils.getSize(image, mimeType);
+				if (!size) continue;
+				let dstSize: vec2 = [...size] as vec2;
+				if (dstSize[0] > options.maxSize || dstSize[1] > options.maxSize) {
+					dstSize = fitWithin(dstSize, [options.maxSize - options.padding * 2, options.maxSize - options.padding * 2]);
+				}
+				let dstImage = image;
+				if (dstSize[0] !== size[0] || dstSize[1] !== size[1]) {
+					if (!encoder) {
+						logger.warn(`${NAME}: resizing requires encoder.`);
 					} else {
-						const rotated = node.width !== rect.paddedW || node.height !== rect.paddedH;
-						const drawW = rotated ? rect.paddedH - options.padding * 2 : rect.paddedW - options.padding * 2;
-						const drawH = rotated ? rect.paddedW - options.padding * 2 : rect.paddedH - options.padding * 2;
-						const drawX = node.x + options.padding;
-						const drawY = node.y + options.padding;
-						placed.push({
-							name: rect.name,
-							texture: rect.tex,
-							drawX,
-							drawY,
-							drawW,
-							drawH,
-							rotated,
-						});
+						dstImage = (await encoder(image).resize(dstSize[0], dstSize[1], { fit: 'fill' }).toBuffer()) as unknown as Uint8Array;
 					}
 				}
-
-				if (placed.length === 0) break;
-
-				// 计算最终图集尺寸（最小覆盖范围 + 安全边距）。
-				let usedW = 0;
-				let usedH = 0;
-				for (const it of placed) {
-					usedW = Math.max(usedW, it.drawX + it.drawW);
-					usedH = Math.max(usedH, it.drawY + it.drawH);
+				dstImage = await encodeToFormat(encoder, dstImage, mimeType, options.format.mimeType);
+				sprites.push({ material, texture, size: dstSize, image: dstImage });
+			}
+			if (sprites.length === 0) continue;
+			const { placements, pages } = pack(sprites, options.maxSize, options.padding);
+			const atlasTextures: Texture[] = [];
+			for (let p = 0; p < pages.length; p++) {
+				let width = pages[p].width;
+				let height = pages[p].height;
+				if (options.pow2) {
+					[width, height] = fitPowerOfTwo([width, height], 'ceil-pot');
 				}
-				let finalW = Math.max(4, usedW + options.padding);
-				let finalH = Math.max(4, usedH + options.padding);
 				if (!options.shrink) {
-					finalW = options.maxSize;
-					finalH = options.maxSize;
-				} else if (options.pow2) {
-					finalW = ceilPowerOfTwo(finalW);
-					finalH = ceilPowerOfTwo(finalH);
+					width = options.maxSize;
+					height = options.maxSize;
 				}
-
-				// 合成页图像。
-				// eslint-disable-next-line @typescript-eslint/no-explicit-any
-				const sharpEnc = encoder as unknown as (arg: unknown) => any;
-				const base = sharpEnc({
+				if (!encoder) {
+					throw new Error(`${NAME}: encoder required for atlas generation.`);
+				}
+				const base = await encoder({
 					create: {
-						width: finalW,
-						height: finalH,
+						width,
+						height,
 						channels: 4,
 						background: { r: 0, g: 0, b: 0, alpha: 0 },
 					},
 				});
-				const overlays = await Promise.all(
-					placed.map(async (it) => {
-						// 处理旋转
-						// eslint-disable-next-line @typescript-eslint/no-explicit-any
-						const img = sharpEnc(Buffer.from(it.texture.getImage()!));
-						const input = it.rotated ? await img.rotate(90).toBuffer() : await img.toBuffer();
-						return { input, left: it.drawX, top: it.drawY };
-					}),
-				);
-				let outBuffer: Buffer;
-				if (options.format.mimeType === 'image/png') {
-					outBuffer = await base.composite(overlays).png().toBuffer();
-				} else if (options.format.mimeType === 'image/webp') {
-					outBuffer = await base.composite(overlays).webp().toBuffer();
-				} else {
-					outBuffer = await base.composite(overlays).avif().toBuffer();
+				const composites: sharp.OverlayOptions[] = [];
+				for (let i = 0; i < placements.length; i++) {
+					const pl = placements[i];
+					if (pl.page !== p) continue;
+					composites.push({
+						input: sprites[i].image as unknown as Buffer,
+						left: pl.x,
+						top: pl.y,
+					});
 				}
-
-				const pageTex = document
-					.createTexture(`${type}-atlas_${atlasIndex}`)
-					.setImage(outBuffer as unknown as Uint8Array<ArrayBuffer>)
-					.setMimeType(options.format.mimeType)
-					.setURI(`${type}-atlas_${atlasIndex}.${options.format.mimeType === 'image/png' ? 'png' : options.format.mimeType === 'image/webp' ? 'webp' : 'avif'}`);
-
-				const items = placed.map((p) => {
-					const [offset, scale] = computeUV(p.drawX, p.drawY, p.drawW, p.drawH, finalW, finalH);
-					return {
-						name: p.name,
-						texture: p.texture,
-						uv: { x: offset[0], y: offset[1], w: scale[0], h: scale[1] },
-						rotated: p.rotated,
-					};
-				});
-
-				allPages.push({
-					pageTex,
-					type,
-					index: atlasIndex,
-					width: finalW,
-					height: finalH,
-					items,
-				});
-
-				atlasIndex += 1;
-				remaining = notPlaced;
+				const buffer = (await base.composite(composites).toFormat(options.format.mimeType.split('/').pop() as sharp.AvailableFormatInfo).toBuffer()) as unknown as Uint8Array;
+				const atlasTex = document.createTexture(`${type}-atlas-${p + 1}`).setImage(buffer).setMimeType(options.format.mimeType);
+				atlasTextures.push(atlasTex);
 			}
-		}
-
-		// 重映射材质槽位，并写入 KHR_texture_transform。
-		for (const page of allPages) {
-			for (const it of page.items) {
-				const graph = it.texture.getGraph();
-				for (const edge of graph.listParentEdges(it.texture)) {
-					const parent = edge.getParent();
-					const slotName = edge.getName();
-					if (!(parent instanceof Material)) continue;
-					const info: TextureInfo | null = (parent as Material)[`get${slotName[0].toUpperCase()}${slotName.slice(1)}Info`]
-						? (parent as Material)[`get${slotName[0].toUpperCase()}${slotName.slice(1)}Info`]()
-						: null;
-					(parent as Material)[`set${slotName[0].toUpperCase()}${slotName.slice(1)}`](page.pageTex);
-					if (info) {
-						const offset: vec2 = [it.uv.x, it.uv.y];
-						const scale: vec2 = [it.uv.w, it.uv.h];
-						const rotation = options.rotate && it.rotated ? Math.PI / 2 : 0;
-						const transform = transformExt.createTransform().setOffset(offset).setScale(scale).setRotation(rotation).setTexCoord(info.getTexCoord() ?? null);
-						info.setExtension('KHR_texture_transform', transform);
+			for (let i = 0; i < placements.length; i++) {
+				const pl = placements[i];
+				const atlas = atlasTextures[pl.page];
+				const { set, info } = getSlot(sprites[i].material, type);
+				set(atlas);
+				const atlasSize = atlas.getSize()!;
+				const offset: vec2 = [pl.x / atlasSize[0], pl.y / atlasSize[1]];
+				const scale: vec2 = [pl.w / atlasSize[0], pl.h / atlasSize[1]];
+				if (useTextureTransform && transformExt) {
+					const tr = transformExt.createTransform();
+					tr.setOffset(offset);
+					tr.setScale(scale);
+					info?.setExtension(KHRTextureTransform.EXTENSION_NAME, tr);
+				} else {
+					info?.setExtension(KHRTextureTransform.EXTENSION_NAME, null);
+					const texcoordIndex = info ? info.getTexCoord() : 0;
+					const semantic = `TEXCOORD_${texcoordIndex}`;
+					for (const mesh of document.getRoot().listMeshes()) {
+						for (const prim of mesh.listPrimitives()) {
+							if (prim.getMaterial() !== sprites[i].material) continue;
+							const srcAttr = prim.getAttribute(semantic) || prim.getAttribute('TEXCOORD_0');
+							if (!srcAttr) continue;
+							const count = srcAttr.getCount();
+							const dst = document.createAccessor().setType('VEC2').setArray(new Float32Array(count * 2));
+							const el: number[] = [];
+							for (let j = 0; j < count; j++) {
+								const uv = srcAttr.getElement(j, el) as [number, number];
+								dst.setElement(j, [uv[0] * scale[0] + offset[0], uv[1] * scale[1] + offset[1]]);
+							}
+							prim.setAttribute(semantic, dst);
+						}
 					}
 				}
 			}
+			logger.debug(`${NAME}(${type}): pages=${pages.length}, sprites=${sprites.length}`);
+			for (const s of sprites) {
+				if (!isUsed(s.texture)) s.texture.dispose();
+			}
 		}
-
-		const replaced = new Set<Texture>();
-		for (const page of allPages) {
-			for (const it of page.items) replaced.add(it.texture);
-		}
-		for (const tex of replaced) {
-			if (!isUsed(tex)) tex.dispose();
-		}
-
-		// 统计输出。
-		const pagesByType = new Map<AtlasType, number>();
-		for (const p of allPages) pagesByType.set(p.type, (pagesByType.get(p.type) || 0) + 1);
-		for (const [type, count] of pagesByType.entries()) logger.debug(`${NAME}: ${type} → ${count} page(s).`);
+		logger.debug(`${NAME}: Complete.`);
 	});
 }
-
