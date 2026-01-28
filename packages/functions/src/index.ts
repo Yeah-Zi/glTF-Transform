@@ -40,6 +40,7 @@ export * from './sort-primitive-weights.js';
 export * from './sparse.js';
 export * from './tangents.js';
 export * from './texture-compress.js';
+export * from './texture-atlas.js';
 export * from './transform-mesh.js';
 export * from './transform-primitive.js';
 export * from './uninstance.js';

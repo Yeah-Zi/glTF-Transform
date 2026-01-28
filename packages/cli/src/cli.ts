@@ -42,6 +42,7 @@ import {
 	TextureResizeFilter,
 	tangents,
 	textureCompress,
+	textureAtlas,
 	UNWRAP_DEFAULTS,
 	type UnweldOptions,
 	unlit,
@@ -1314,6 +1315,51 @@ preserving original aspect ratio. Texture dimensions are never increased.
 				resize,
 				resizeFilter: options.filter as TextureResizeFilter,
 				pattern,
+			}),
+		);
+	});
+
+// ATLAS
+program
+	.command('atlas', 'Merge textures into atlases and remap UV by KHR_texture_transform')
+	.help(
+		`
+Create texture atlases per slot type (baseColor, normal, metallicRoughness, occlusion, emissive),
+reassign material texture references to atlas pages, and write KHR_texture_transform offset/scale.
+
+Examples:
+
+  ▸ gltf-transform atlas input.glb output.glb --types baseColor,normal --max-size 4096 --padding 2 --format png
+		`.trim(),
+	)
+	.argument('<input>', INPUT_DESC)
+	.argument('<output>', OUTPUT_DESC)
+	.option('--types <types>', 'Types to merge, comma-separated', { validator: Validator.STRING, default: 'baseColor,normal,metallicRoughness,occlusion,emissive' })
+	.option('--max-size <size>', 'Atlas page max dimension (px)', { validator: Validator.NUMBER, default: 4096 })
+	.option('--padding <px>', 'Padding around each sprite (px)', { validator: Validator.NUMBER, default: 2 })
+	.option('--rotate <bool>', 'Allow rotation during packing', { validator: Validator.BOOLEAN, default: false })
+	.option('--pow2 <bool>', 'Use power-of-two atlas size', { validator: Validator.BOOLEAN, default: true })
+	.option('--shrink <bool>', 'Shrink atlas canvas to minimal used area', { validator: Validator.BOOLEAN, default: true })
+	.option('--remap <mode>', 'UV remap strategy', { validator: ['texture_transform', 'geometry'], default: 'texture_transform' })
+	.option('--format <fmt>', 'Output format', { validator: ['png', 'webp', 'avif'], default: 'png' })
+	.action(async ({ args, options, logger }) => {
+		const types = String(options.types)
+			.split(',')
+			.map((s) => s.trim())
+			.filter(Boolean);
+		const { default: encoder } = await import('sharp');
+		const { textureAtlas: textureAtlasLocal } = await import('../../functions/dist/index.mjs');
+		return Session.create(io, logger, args.input, args.output).transform(
+			textureAtlasLocal({
+				encoder,
+				types,
+				maxSize: Number(options.maxSize),
+				padding: Number(options.padding),
+				rotate: Boolean(options.rotate),
+				pow2: Boolean(options.pow2),
+				shrink: Boolean(options.shrink),
+				remap: options.remap as 'texture_transform' | 'geometry',
+				format: { mimeType: options.format === 'png' ? 'image/png' : options.format === 'webp' ? 'image/webp' : 'image/avif' },
 			}),
 		);
 	});
