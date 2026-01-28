@@ -111,9 +111,18 @@ await io.write('output/model.atlas.geometry.gltf', document);
 - 引用更新
   - 所有被合并的材质槽位改为引用图集纹理
   - `texture_transform`：对槽位写入 KHR_texture_transform(offset/scale)
-  - `geometry`：按图集中位置直接线性变换对应 `TEXCOORD_N`，移除 KHR_texture_transform
+  - `geometry`：为每个材质槽位创建独立的 `TEXCOORD_N`，将该槽位的 `texCoord` 指向新索引，并按图集位置写入 UV；移除 KHR_texture_transform
 - 资源清理
   - 原始纹理在不再被引用时会被从文档中移除，导出只包含图集纹理
+
+## 几何模式的限制与处理
+- 若多个槽位原本共享同一 UV 集，几何模式会为各槽位分配独立的 `TEXCOORD` 索引，以避免互相覆盖。
+- 依据采样器 `wrapS/wrapT` 对 UV 进行归一化处理：
+  - `CLAMP_TO_EDGE`：裁剪到 `[0,1]`
+  - `REPEAT`：按 `fract(uv)` 取模
+  - `MIRRORED_REPEAT`：按镜像重复进行取模
+- 当新增 `TEXCOORD_N (N>0)` 时，按规范补齐缺失的低索引。
+- 若运行环境可稳定支持 KHR_texture_transform，优先推荐该模式。
 
 ## 验证
 - 使用 `inspect` 查看材质与纹理摘要、扩展使用情况：

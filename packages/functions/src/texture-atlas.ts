@@ -198,22 +198,70 @@ export function textureAtlas(_options: TextureAtlasOptions): Transform {
 					tr.setScale(scale);
 					info?.setExtension(KHRTextureTransform.EXTENSION_NAME, tr);
 				} else {
+					const wrapS = info ? info.getWrapS() : undefined;
+					const wrapT = info ? info.getWrapT() : undefined;
 					info?.setExtension(KHRTextureTransform.EXTENSION_NAME, null);
-					const texcoordIndex = info ? info.getTexCoord() : 0;
-					const semantic = `TEXCOORD_${texcoordIndex}`;
+					let newTexCoordIndex = 0;
 					for (const mesh of document.getRoot().listMeshes()) {
 						for (const prim of mesh.listPrimitives()) {
 							if (prim.getMaterial() !== sprites[i].material) continue;
-							const srcAttr = prim.getAttribute(semantic) || prim.getAttribute('TEXCOORD_0');
+							for (const semanticName of prim.listSemantics()) {
+								if (semanticName.startsWith('TEXCOORD_')) {
+									const idx = Number(semanticName.replace('TEXCOORD_', ''));
+									newTexCoordIndex = Math.max(newTexCoordIndex, idx + 1);
+								}
+							}
+						}
+					}
+					if (info) info.setTexCoord(newTexCoordIndex);
+					const newSemantic = `TEXCOORD_${newTexCoordIndex}`;
+					for (const mesh of document.getRoot().listMeshes()) {
+						for (const prim of mesh.listPrimitives()) {
+							if (prim.getMaterial() !== sprites[i].material) continue;
+							const srcIndex = info ? Math.max(0, info.getTexCoord()) : 0;
+							const srcSemantic = `TEXCOORD_${srcIndex}`;
+							const srcAttr =
+								prim.getAttribute(srcSemantic) ||
+								prim.getAttribute('TEXCOORD_0');
 							if (!srcAttr) continue;
 							const count = srcAttr.getCount();
 							const dst = document.createAccessor().setType('VEC2').setArray(new Float32Array(count * 2));
 							const el: number[] = [];
 							for (let j = 0; j < count; j++) {
 								const uv = srcAttr.getElement(j, el) as [number, number];
-								dst.setElement(j, [uv[0] * scale[0] + offset[0], uv[1] * scale[1] + offset[1]]);
+								let u = uv[0];
+								let v = uv[1];
+								if (wrapS === 10497) {
+									u = u - Math.floor(u);
+								} else if (wrapS === 33071) {
+									u = Math.max(0, Math.min(1, u));
+								} else if (wrapS === 33648) {
+									const fu = Math.abs(u);
+									const ru = fu - Math.floor(fu);
+									const mu = Math.floor(fu) % 2 === 0 ? ru : 1 - ru;
+									u = mu;
+								}
+								if (wrapT === 10497) {
+									v = v - Math.floor(v);
+								} else if (wrapT === 33071) {
+									v = Math.max(0, Math.min(1, v));
+								} else if (wrapT === 33648) {
+									const fv = Math.abs(v);
+									const rv = fv - Math.floor(fv);
+									const mv = Math.floor(fv) % 2 === 0 ? rv : 1 - rv;
+									v = mv;
+								}
+								const tu = u * scale[0] + offset[0];
+								const tv = v * scale[1] + offset[1];
+								dst.setElement(j, [tu, tv]);
 							}
-							prim.setAttribute(semantic, dst);
+							prim.setAttribute(newSemantic, dst);
+							for (let j = newTexCoordIndex - 1; j >= 0; j--) {
+								const s = `TEXCOORD_${j}`;
+								if (!prim.getAttribute(s)) {
+									prim.setAttribute(s, dst);
+								}
+							}
 						}
 					}
 				}
