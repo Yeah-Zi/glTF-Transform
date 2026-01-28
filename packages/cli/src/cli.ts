@@ -19,6 +19,9 @@ import {
 	MESHOPT_DEFAULTS,
 	meshopt,
 	metalRough,
+	BAKE_DEFAULTS,
+	type BakeFactorsOptions,
+	bakeFactors,
 	PALETTE_DEFAULTS,
 	type PaletteOptions,
 	type PartitionOptions,
@@ -1237,6 +1240,68 @@ to palette textures.
 	.action(async ({ args, options, logger }) => {
 		return Session.create(io, logger, args.input, args.output).transform(
 			palette(options as unknown as PaletteOptions),
+		);
+	});
+
+// BAKE-FACTORS
+program
+	.command('bake-factors', 'Bake scalar material factors into textures')
+	.help(
+		`
+Bake baseColor/emissive/metallic/roughness factors into textures. When a texture already exists
+for the slot, mixes factor × texture at pixel level and writes a new texture. By default factors
+are reset after baking to avoid double multiplication, leaving textures as the sole expression.
+
+Examples:
+  ▸ gltf-transform bake-factors input.glb output.glb --targets baseColor,emissive,metallicRoughness
+  ▸ gltf-transform bake-factors input.glb output.glb --resolution 1024x1024 --mimeType jpeg --keep-factors
+`.trim(),
+	)
+	.argument('<input>', INPUT_DESC)
+	.argument('<output>', OUTPUT_DESC)
+	.option('--targets <list>', 'Slots to bake (comma-separated)', {
+		validator: Validator.STRING,
+		default: BAKE_DEFAULTS.targets.join(','),
+	})
+	.option('--resolution <preset|WxH>', 'Resolution preset (source|max) or explicit WxH', {
+		validator: Validator.STRING,
+		default: typeof BAKE_DEFAULTS.resolution === 'string' ? BAKE_DEFAULTS.resolution : 'source',
+	})
+	.option('--keep-factors <bool>', 'Keep factors after baking', {
+		validator: Validator.BOOLEAN,
+		default: BAKE_DEFAULTS.keepFactors,
+	})
+	.option('--mimeType <type>', 'Output image type (png|jpeg)', {
+		validator: ['png', 'jpeg'],
+		default: BAKE_DEFAULTS.mimeType === 'image/png' ? 'png' : 'jpeg',
+	})
+	.option('--name-suffix <suffix>', 'Suffix appended to baked texture names', {
+		validator: Validator.STRING,
+		default: BAKE_DEFAULTS.nameSuffix,
+	})
+	.action(({ args, options, logger }) => {
+		const targets = String(options.targets)
+			.split(',')
+			.map((s) => s.trim())
+			.filter(Boolean) as BakeFactorsOptions['targets'];
+		const resStr = String(options.resolution).trim().toLowerCase();
+		let resolution: BakeFactorsOptions['resolution'];
+		if (resStr === 'source' || resStr === 'max') {
+			resolution = resStr;
+		} else {
+			const match = resStr.match(/^(\d+)\s*x\s*(\d+)$/i);
+			if (!match) throw new Error(`Invalid --resolution value: ${options.resolution}. Use 'source', 'max' or 'WxH'.`);
+			resolution = { width: Number(match[1]), height: Number(match[2]) };
+		}
+		const mimeType = options.mimeType === 'png' ? 'image/png' : 'image/jpeg';
+		return Session.create(io, logger, args.input, args.output).transform(
+			bakeFactors({
+				targets,
+				resolution,
+				keepFactors: Boolean(options.keepFactors),
+				mimeType,
+				nameSuffix: String(options.nameSuffix),
+			} as BakeFactorsOptions),
 		);
 	});
 
