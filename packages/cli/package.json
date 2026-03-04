@@ -18,16 +18,19 @@
   },
   "scripts": {
     "build": "tsdown src/cli.ts --format esm --env.PACKAGE_VERSION=$npm_package_version",
-    "build:watch": "tsdown src/cli.ts --watch --format esm --env.PACKAGE_VERSION=$npm_package_version"
+    "build:watch": "tsdown src/cli.ts --watch --format esm --env.PACKAGE_VERSION=$npm_package_version",
+    "package:win": "caxa --input . --output ./dist/gltf-transform.exe -- \"{{caxa}}/node_modules/.bin/node\" \"{{caxa}}/bin/cli.js\"",
+    "package:linux": "caxa --input . --output ./dist/gltf-transform -- \"{{caxa}}/node_modules/.bin/node\" \"{{caxa}}/bin/cli.js\"",
+    "package:mac": "caxa --input . --output ./dist/glTF-Transform.app -- \"{{caxa}}/node_modules/.bin/node\" \"{{caxa}}/bin/cli.js\""
   },
   "bin": {
     "gltf-transform": "./bin/cli.js"
   },
   "dependencies": {
     "@donmccurdy/caporal": "~0.0.10",
-    "@gltf-transform/core": "^4.3.0",
-    "@gltf-transform/extensions": "^4.3.0",
-    "@gltf-transform/functions": "^4.3.0",
+    "@gltf-transform/core": "file:../core/gltf-transform-core-4.3.0.tgz",
+    "@gltf-transform/extensions": "file:../extensions/gltf-transform-extensions-4.3.0.tgz",
+    "@gltf-transform/functions": "file:../functions/gltf-transform-functions-4.3.0.tgz",
     "@types/language-tags": "~1.0.4",
     "@types/micromatch": "~4.0.10",
     "@types/node-fetch": "~2.6.13",
@@ -59,5 +62,8 @@
     "LICENSE.md",
     "package-lock.json"
   ],
+  "devDependencies": {
+    "caxa": "^3.0.1"
+  },
   "gitHead": "895b70777fda68aa321358d17dab2105e8564d08"
 }

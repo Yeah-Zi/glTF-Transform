@@ -63,6 +63,47 @@ gltf-transform etc1s output1.glb output2.glb --quality 255 --verbose
 
 See [*Credits*](https://gltf-transform.dev/credits).
 
+## 打包分发（caxa）
+
+使用 caxa 将 CLI 打包为可执行文件，便于在目标平台直接运行，无需预装 Node.js。
+
+- 依赖与脚本修改（packages/cli/package.json）：
+  - devDependencies 增加：caxa@^3.0.1
+  - 新增脚本：
+    - package:win：caxa --input . --output ./dist/gltf-transform.exe -- "{{caxa}}/node_modules/.bin/node" "{{caxa}}/bin/cli.js"
+    - package:linux：caxa --input . --output ./dist/gltf-transform -- "{{caxa}}/node_modules/.bin/node" "{{caxa}}/bin/cli.js"
+    - package:mac：caxa --input . --output ./dist/glTF-Transform.app -- "{{caxa}}/node_modules/.bin/node" "{{caxa}}/bin/cli.js"
+
+- 准备（在仓库根目录）：
+  - yarn install
+  - yarn build
+
+- 准备（在 packages/cli 目录）：
+  - 生成 node_modules：npm install --workspaces=false --omit=dev
+  - 为避免 Windows 上符号链接与本地源码版本差异问题，建议将本地构建包以 tgz 安装：
+    - 在 packages/functions、packages/core、packages/extensions 分别执行 npm pack
+    - 在 packages/cli 执行：
+      - npm install ..\\functions\\gltf-transform-functions-4.3.0.tgz ..\\core\\gltf-transform-core-4.3.0.tgz ..\\extensions\\gltf-transform-extensions-4.3.0.tgz --workspaces=false --omit=dev
+
+- 打包：
+  - Windows：
+    - npx caxa --input . --output ./dist/gltf-transform.exe -- "{{caxa}}/node_modules/.bin/node" "{{caxa}}/bin/cli.js"
+    - 或 npm run package:win
+  - Linux：
+    - npm run package:linux（在 Linux 环境下执行）
+  - macOS：
+    - npm run package:mac（在 macOS 环境下执行）
+
+- 验证：
+  - Windows：./packages/cli/dist/gltf-transform.exe --help
+  - 其他平台运行对应产物并查看帮助输出
+
+- 注意事项：
+  - 原生模块（如 sharp）存在平台差异，需在目标 OS 上打包，不能跨平台生成二进制。
+  - caxa 会将调用时的 Node.js 可执行文件一并打包，建议使用 Node.js ≥ 20（与本包 engines 对齐）。
+  - Yarn PnP 默认不生成 node_modules；打包输入必须包含 node_modules，故在子包内使用 npm 生成依赖目录。
+  - 可用 --exclude 排除非必要文件（如 .git、test 等）以减小产物体积（谨慎排除，确保 CLI 运行完整）。
+
 <h2>Commercial Use</h2>
 
 <p>
