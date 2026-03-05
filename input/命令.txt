@@ -1,0 +1,3 @@
+gltf-transform simplify 纹理图集测试数据.gltf 1/1.gltf --ratio 0.01
+
+gltf-transform.exe lod 纹理图集测试数据.gltf output/lod.glb --error 1
