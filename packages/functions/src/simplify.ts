@@ -119,8 +119,63 @@ export function simplify(_options: SimplifyOptions): Transform {
 	});
 }
 
+/**
+ * Simplifies a document and returns the maximum error value across all primitives.
+ * This is a helper function for use cases where the error value is needed.
+ * @hidden
+ */
+export async function simplifyDocumentWithError(document: Document, options: SimplifyOptions): Promise<number> {
+	const simplifier = options.simplifier as typeof MeshoptSimplifier | undefined;
+
+	if (!simplifier) {
+		throw new Error(`${NAME}: simplifier dependency required — install "meshoptimizer".`);
+	}
+
+	const logger = document.getLogger();
+
+	await simplifier.ready;
+	await document.transform(weld({ overwrite: false }));
+
+	let maxError = 0;
+	let numUnsupported = 0;
+
+	// Simplify mesh primitives.
+	for (const mesh of document.getRoot().listMeshes()) {
+		for (const prim of mesh.listPrimitives()) {
+			const mode = prim.getMode();
+			if (mode !== TRIANGLES && mode !== TRIANGLE_STRIP && mode !== TRIANGLE_FAN && mode !== POINTS) {
+				numUnsupported++;
+				continue;
+			}
+
+			const result = simplifyPrimitiveWithError(prim, options);
+			maxError = Math.max(maxError, result.error);
+
+			if (getPrimitiveVertexCount(prim, VertexCountMethod.RENDER) === 0) {
+				deepDisposePrimitive(prim);
+			}
+		}
+
+		if (mesh.listPrimitives().length === 0) mesh.dispose();
+	}
+
+	if (numUnsupported > 0) {
+		logger.warn(`${NAME}: Skipped ${numUnsupported} primitives: Unsupported draw mode.`);
+	}
+
+	logger.debug(`${NAME}: Complete.`);
+
+	return maxError;
+}
+
 /** @hidden */
 export function simplifyPrimitive(prim: Primitive, _options: SimplifyOptions): Primitive {
+	const result = simplifyPrimitiveWithError(prim, _options);
+	return result.primitive;
+}
+
+/** @hidden */
+export function simplifyPrimitiveWithError(prim: Primitive, _options: SimplifyOptions): { primitive: Primitive; error: number } {
 	const options = { ...SIMPLIFY_DEFAULTS, ..._options } as Required<SimplifyOptions>;
 	const simplifier = options.simplifier as typeof MeshoptSimplifier;
 	const graph = prim.getGraph();
@@ -129,12 +184,12 @@ export function simplifyPrimitive(prim: Primitive, _options: SimplifyOptions): P
 
 	switch (prim.getMode()) {
 		case POINTS:
-			return _simplifyPoints(document, prim, options);
+			return { primitive: _simplifyPoints(document, prim, options), error: 0 };
 		case LINES:
 		case LINE_STRIP:
 		case LINE_LOOP:
 			logger.warn(`${NAME}: Skipping primitive simplification: Unsupported draw mode.`);
-			return prim;
+			return { primitive: prim, error: 0 };
 		case TRIANGLE_STRIP:
 		case TRIANGLE_FAN:
 			convertPrimitiveToTriangles(prim);
@@ -191,7 +246,7 @@ export function simplifyPrimitive(prim: Primitive, _options: SimplifyOptions): P
 
 	logger.debug(`${NAME}: ${formatDeltaOp(srcVertexCount, dstVertexCount)} vertices, error: ${error.toFixed(4)}.`);
 
-	return prim;
+	return { primitive: prim, error };
 }
 
 function _simplifyPoints(document: Document, prim: Primitive, options: Required<SimplifyOptions>): Primitive {

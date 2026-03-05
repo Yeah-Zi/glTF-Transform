@@ -40,6 +40,7 @@ import {
 	type SparseOptions,
 	sequence,
 	simplify,
+	simplifyDocumentWithError,
 	sparse,
 	TEXTURE_COMPRESS_SUPPORTED_FORMATS,
 	TextureResizeFilter,
@@ -1180,6 +1181,151 @@ Based on the meshoptimizer library (https://github.com/zeux/meshoptimizer).
 			simplify({ simplifier: MeshoptSimplifier, ...options }),
 		),
 	);
+
+// LOD
+program
+	.command('lod', 'Generate multiple LOD (Level of Detail) levels')
+	.help(
+		`
+Generate multiple LOD (Level of Detail) levels for the model. This command creates
+8 levels of LOD with 50% simplification at each level. The output files will be
+named with LOD suffixes (_lod0, _lod1, ..., _lod7).
+
+LOD levels:
+- LOD 0: Original model (100% vertices)
+- LOD 1: 50% simplification (50% vertices)
+- LOD 2: 25% simplification (25% vertices)
+- LOD 3: 12.5% simplification (12.5% vertices)
+- LOD 4: 6.25% simplification (6.25% vertices)
+- LOD 5: 3.125% simplification (3.125% vertices)
+- LOD 6: 1.5625% simplification (1.5625% vertices)
+- LOD 7: 0.78125% simplification (0.78125% vertices)
+
+Each LOD level is generated with the same error tolerance as the simplify command.
+For best results, ensure your model is properly welded before generating LODs.
+
+This command also generates a JSON file with vertex and triangle count statistics
+for each LOD level, saved as <output>_lod_stats.json in the output directory.
+
+Example:
+
+  ▸ gltf-transform lod input.glb output.glb --error 0.001
+	`.trim(),
+	)
+	.argument('<input>', INPUT_DESC)
+	.argument('<output>', OUTPUT_DESC)
+	.option('--error <error>', 'Limit on error, as a fraction of mesh radius', {
+		validator: Validator.NUMBER,
+		default: SIMPLIFY_DEFAULTS.error,
+	})
+	.option('--lock-border <bool>', 'Whether to lock topological borders of the mesh', {
+		validator: Validator.BOOLEAN,
+		default: SIMPLIFY_DEFAULTS.lockBorder,
+	})
+	.action(async ({ args, options, logger }) => {
+		const lodLevels = 8;
+		const baseRatio = 0.5; // 50% simplification per level
+		
+		const inputPath = args.input as string;
+		const outputPath = args.output as string;
+		
+		// Extract file extension and base name
+		const path = await import('node:path');
+		const fs = await import('node:fs/promises');
+		const ext = path.extname(outputPath);
+		const baseName = outputPath.slice(0, -ext.length);
+		const outputDir = path.dirname(outputPath);
+		
+		// Object to store vertex count statistics
+		const lodStats = {
+			inputFile: inputPath,
+			outputDirectory: outputDir,
+			lodLevels: lodLevels,
+			levels: [] as Array<{
+				level: number;
+				filePath: string;
+				targetRatio: number;
+				vertexCount: number;
+				triangleCount: number;
+				simplificationError: number;
+			}>
+		};
+		
+		// Generate LOD levels
+		for (let level = 0; level < lodLevels; level++) {
+			const ratio = Math.pow(baseRatio, level);
+			const lodOutputPath = `${baseName}_lod${level}${ext}`;
+			
+			logger.info(`Generating LOD ${level}: ${(ratio * 100).toFixed(2)}% vertices`);
+			
+			// Read input document (always use original input for consistency)
+			const inputDoc = await io.read(inputPath);
+			
+			let simplificationError = 0;
+			
+			// Level 0 is the original model, no simplification needed
+			if (level === 0) {
+				// Just copy the original file
+				await io.write(lodOutputPath, inputDoc);
+			} else {
+				// Apply simplification and get error value
+				simplificationError = await simplifyDocumentWithError(inputDoc, {
+					simplifier: MeshoptSimplifier,
+					ratio: ratio,
+					error: options.error,
+					lockBorder: options.lockBorder
+				});
+				
+				// Write the simplified document
+				await io.write(lodOutputPath, inputDoc);
+			}
+			
+			// Count vertices and triangles in all meshes
+			let totalVertices = 0;
+			let totalTriangles = 0;
+			
+			for (const mesh of inputDoc.getRoot().listMeshes()) {
+				for (const primitive of mesh.listPrimitives()) {
+					const position = primitive.getAttribute('POSITION');
+					if (position) {
+						totalVertices += position.getCount();
+					}
+					
+					// Count triangles based on indices
+					const indices = primitive.getIndices();
+					if (indices) {
+						totalTriangles += Math.floor(indices.getCount() / 3);
+					} else if (position) {
+						// For non-indexed geometry, estimate triangles
+						totalTriangles += Math.floor(position.getCount() / 3);
+					}
+				}
+			}
+			
+			// Store statistics
+			lodStats.levels.push({
+				level: level,
+				filePath: path.basename(lodOutputPath),
+				targetRatio: ratio,
+				vertexCount: totalVertices,
+				triangleCount: totalTriangles,
+				simplificationError: simplificationError
+			});
+			
+			if (level === 0) {
+				logger.info(`LOD ${level}: ${totalVertices} vertices, ${totalTriangles} triangles (original)`);
+			} else {
+				logger.info(`LOD ${level}: ${totalVertices} vertices, ${totalTriangles} triangles, error: ${simplificationError.toFixed(6)}`);
+			}
+		}
+		
+		// Write statistics to JSON file
+		const statsFilePath = path.join(outputDir, `${path.basename(baseName)}_lod_stats.json`);
+		await fs.writeFile(statsFilePath, JSON.stringify(lodStats, null, 2));
+		
+		logger.info(`Generated ${lodLevels} LOD levels successfully`);
+		logger.info(`Vertex statistics saved to: ${statsFilePath}`);
+	});
 
 program.section('Material', '🎨');
 
