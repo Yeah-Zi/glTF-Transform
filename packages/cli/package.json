@@ -39,6 +39,7 @@
     "cli-table3": "~0.6.5",
     "csv-stringify": "~6.6.0",
     "draco3dgltf": "~1.5.7",
+    "gl-matrix": "^3.4.4",
     "gltf-validator": "~2.0.0-dev.3.10",
     "keyframe-resample": "~0.1.0",
     "ktx-parse": "^1.1.0",
@@ -63,7 +64,8 @@
     "package-lock.json"
   ],
   "devDependencies": {
-    "caxa": "^3.0.1"
+    "caxa": "^3.0.1",
+    "tsdown": "^0.21.10"
   },
   "gitHead": "895b70777fda68aa321358d17dab2105e8564d08"
 }

@@ -314,15 +314,52 @@ gltf-transform <command> --help
 - `--lock-border <bool>`: 是否锁定网格的拓扑边界，默认：false
 
 #### `lod` - 生成 LOD 级别
-**功能描述：** 为模型生成多个 LOD（细节级别）级别。
+**功能描述：** 为模型生成多个 LOD（细节级别）级别，最多 LOD0（原始）到 LOD7（0.78% 顶点）。每层输出独立的 glTF/GLB 文件（文件名追加 `_lod{n}` 后缀），同时自动生成统计文件。
 
 **参数：**
 - `<input>`: 输入文件路径
-- `<output>`: 输出文件路径
+- `<output>`: 输出文件路径（作为基础命名，实际文件为 `<base>_lod0.<ext>` ~ `<base>_lod7.<ext>`）
 
 **选项：**
-- `--error <error>`: 误差限制，默认：0.001
+- `--error <error>`: 误差限制（网格半径的分数），默认：0.001
 - `--lock-border <bool>`: 是否锁定网格的拓扑边界，默认：false
+
+**输出统计文件：** `*_lod_stats.json`
+
+命令执行后会在 `<output>` 所在目录自动生成一个统计文件，命名规则为 `<basename>_lod_stats.json`，用于记录每层的顶点/三角形数量与简化误差。
+
+字段结构：
+```json
+{
+  "inputFile": "输入的源文件路径",
+  "outputDirectory": "输出文件所在目录",
+  "lodLevels": 8,
+  "generatedLevels": 5,
+  "levels": [
+    {
+      "level": 0,
+      "filePath": "xxx_lod0.glb",
+      "targetRatio": 1,
+      "vertexCount": 2645,
+      "triangleCount": 1920,
+      "simplificationError": 0
+    }
+  ]
+}
+```
+
+字段含义：
+- `lodLevels`：计划生成的最大层数（固定 8）
+- `generatedLevels`：实际生成的层数（若某层与上一层顶点/三角形无变化则提前停止）
+- `levels[]` 中每项：
+  - `level`：LOD 层级编号（0=原始 → 7=最粗）
+  - `filePath`：输出的文件名（不含目录路径）
+  - `targetRatio`：该层的目标简化比率（0.5^level）
+  - `vertexCount`：该层顶点总数
+  - `triangleCount`：该层三角形总数
+  - `simplificationError`：该层简化过程中的最大误差值（meshoptimizer 返回，LOD0 恒为 0）
+
+用途：运行时根据各层几何规模与误差值设定 LOD 切换阈值（相机距离 / 屏幕占比 / 包围盒投影面积等）。
 
 ### 🎨 材质命令组
 
