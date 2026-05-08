@@ -1202,7 +1202,9 @@ LOD levels:
 - LOD 6: 1.5625% simplification (1.5625% vertices)
 - LOD 7: 0.78125% simplification (0.78125% vertices)
 
-Each LOD level is generated with the same error tolerance as the simplify command.
+Each LOD level uses the simplify error limit (default: 1, effectively unconstrained
+so the target ratio drives simplification). Pass a smaller --error to cap quality loss.
+
 For best results, ensure your model is properly welded before generating LODs.
 
 This command also generates a JSON file with vertex and triangle count statistics
@@ -1217,7 +1219,7 @@ Example:
 	.argument('<output>', OUTPUT_DESC)
 	.option('--error <error>', 'Limit on error, as a fraction of mesh radius', {
 		validator: Validator.NUMBER,
-		default: SIMPLIFY_DEFAULTS.error,
+		default: 1,
 	})
 	.option('--lock-border <bool>', 'Whether to lock topological borders of the mesh', {
 		validator: Validator.BOOLEAN,
