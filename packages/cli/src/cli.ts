@@ -1,4 +1,5 @@
 import { readFile, writeFile } from 'node:fs/promises';
+import { createHash } from 'node:crypto';
 import { type Logger, NodeIO, PropertyType, type Transform, VertexLayout, type vec2 } from '@gltf-transform/core';
 import {
 	type CenterOptions,
@@ -1235,6 +1236,73 @@ Example:
 		const ext = path.extname(outputPath);
 		const baseName = outputPath.slice(0, -ext.length);
 		const outputDir = path.dirname(outputPath);
+		const isExternalURI = (uri: string): boolean => {
+			return !uri.startsWith('data:') && !/^[a-z]+:\/\//i.test(uri);
+		};
+		const appendSuffixToURI = (uri: string, suffix: string): string => {
+			const normalizedURI = uri.replace(/\\/g, '/');
+			const parsed = path.posix.parse(normalizedURI);
+			const name = parsed.name || parsed.base || 'resource';
+			const extname = parsed.ext || '';
+			const fileName = `${name}${suffix}${extname}`;
+			return parsed.dir ? `${parsed.dir}/${fileName}` : fileName;
+		};
+		const getTextureExtension = (uri: string, mimeType: string): string => {
+			const parsedExt = path.posix.parse(uri.replace(/\\/g, '/')).ext;
+			if (parsedExt) return parsedExt.toLowerCase();
+			switch (mimeType) {
+				case 'image/jpeg':
+					return '.jpg';
+				case 'image/webp':
+					return '.webp';
+				case 'image/avif':
+					return '.avif';
+				default:
+					return '.png';
+			}
+		};
+		const hashTextureURI = (uri: string, texture: import('@gltf-transform/core').Texture): string => {
+			const image = texture.getImage();
+			const mimeType = texture.getMimeType();
+			const ext = getTextureExtension(uri, mimeType);
+			if (!image || image.byteLength === 0) {
+				const fallback = createHash('sha1').update(uri).digest('hex').slice(0, 12);
+				return `tex_${fallback}${ext}`;
+			}
+			const hash = createHash('sha1').update(Buffer.from(image)).digest('hex').slice(0, 12);
+			return `tex_${hash}${ext}`;
+		};
+		const uniquifyResourceURIs = (lodTag: string, doc: import('@gltf-transform/core').Document): void => {
+			const used = new Set<string>();
+			const ensureUnique = (candidate: string): string => {
+				if (!used.has(candidate)) {
+					used.add(candidate);
+					return candidate;
+				}
+				const parsed = path.posix.parse(candidate);
+				let index = 1;
+				let next = '';
+				do {
+					next = parsed.dir
+						? `${parsed.dir}/${parsed.name}_${index}${parsed.ext}`
+						: `${parsed.name}_${index}${parsed.ext}`;
+					index++;
+				} while (used.has(next));
+				used.add(next);
+				return next;
+			};
+
+			for (const buffer of doc.getRoot().listBuffers()) {
+				const uri = buffer.getURI();
+				if (!uri || !isExternalURI(uri)) continue;
+				buffer.setURI(ensureUnique(appendSuffixToURI(uri, lodTag)));
+			}
+			for (const texture of doc.getRoot().listTextures()) {
+				const uri = texture.getURI();
+				if (!uri || !isExternalURI(uri)) continue;
+				texture.setURI(ensureUnique(hashTextureURI(uri, texture)));
+			}
+		};
 		
 		// Object to store vertex count statistics
 		const lodStats = {
@@ -1266,6 +1334,7 @@ Example:
 			// Level 0 is the original model, no simplification needed
 			if (level === 0) {
 				// Just copy the original file
+				uniquifyResourceURIs(`_lod${level}`, inputDoc);
 				await io.write(lodOutputPath, inputDoc);
 			} else {
 				// Apply simplification and get error value
@@ -1277,6 +1346,7 @@ Example:
 				});
 				
 				// Write the simplified document
+				uniquifyResourceURIs(`_lod${level}`, inputDoc);
 				await io.write(lodOutputPath, inputDoc);
 			}
 			
