@@ -49,6 +49,7 @@ export const load: LayoutServerLoad = () => {
 						{ text: 'Concepts', href: '/concepts' },
 						{ text: 'Extensions', href: '/extensions' },
 						{ text: 'Functions', href: '/functions' },
+						{ text: 'Texture Atlas', href: '/texture-atlas' },
 					],
 					subsections: [],
 				},
@@ -92,6 +93,7 @@ export const load: LayoutServerLoad = () => {
 							title: 'Command-line',
 							items: [
 								{ text: 'Quickstart', href: '/cli' },
+								{ text: 'Texture Atlas', href: '/texture-atlas' },
 								{ text: 'Configuration ', href: '/cli-configuration' },
 							],
 						},

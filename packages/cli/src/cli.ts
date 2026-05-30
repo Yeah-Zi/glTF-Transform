@@ -1,6 +1,15 @@
 import { readFile, writeFile } from 'node:fs/promises';
 import { createHash } from 'node:crypto';
-import { type Logger, NodeIO, PropertyType, type Transform, VertexLayout, type vec2 } from '@gltf-transform/core';
+import {
+	BufferUtils,
+	ImageUtils,
+	type Logger,
+	NodeIO,
+	PropertyType,
+	type Transform,
+	VertexLayout,
+	type vec2,
+} from '@gltf-transform/core';
 import {
 	type CenterOptions,
 	center,
@@ -23,6 +32,7 @@ import {
 	BAKE_DEFAULTS,
 	type BakeFactorsOptions,
 	bakeFactors,
+	cloneDocument,
 	PALETTE_DEFAULTS,
 	type PaletteOptions,
 	type PartitionOptions,
@@ -1189,21 +1199,18 @@ program
 	.help(
 		`
 Generate multiple LOD (Level of Detail) levels for the model. This command creates
-8 levels of LOD with 50% simplification at each level. The output files will be
-named with LOD suffixes (_lod0, _lod1, ..., _lod7).
+adaptive LOD levels with 50% triangle reduction from the previous level. The output
+files will be named with LOD suffixes (_lod0, _lod1, ...).
 
 LOD levels:
 - LOD 0: Original model (100% vertices)
-- LOD 1: 50% simplification (50% vertices)
-- LOD 2: 25% simplification (25% vertices)
-- LOD 3: 12.5% simplification (12.5% vertices)
-- LOD 4: 6.25% simplification (6.25% vertices)
-- LOD 5: 3.125% simplification (3.125% vertices)
-- LOD 6: 1.5625% simplification (1.5625% vertices)
-- LOD 7: 0.78125% simplification (0.78125% vertices)
+- LOD 1+: Each geometry LOD targets half of the previous level's triangles.
 
 Each LOD level uses the simplify error limit (default: 1, effectively unconstrained
-so the target ratio drives simplification). Pass a smaller --error to cap quality loss.
+so the triangle target drives simplification). If the target cannot be reached, the
+command increases simplification strength and then stops geometry LOD generation.
+After geometry stops, texture-only LODs continue by halving texture resolution until
+the largest supported texture is smaller than 128px.
 
 For best results, ensure your model is properly welded before generating LODs.
 
@@ -1226,8 +1233,10 @@ Example:
 		default: SIMPLIFY_DEFAULTS.lockBorder,
 	})
 	.action(async ({ args, options, logger }) => {
-		const lodLevels = 8;
-		const baseRatio = 0.5; // 50% simplification per level
+		const maxLodLevels = 32;
+		const baseRatio = 0.5; // Target 50% of the previous level's triangles.
+		const minTextureMaxSize = 128;
+		const supportedTextureMimeTypes = new Set(['image/jpeg', 'image/png', 'image/webp', 'image/avif']);
 		
 		const inputPath = args.input as string;
 		const outputPath = args.output as string;
@@ -1235,6 +1244,7 @@ Example:
 		// Extract file extension and base name
 		const path = await import('node:path');
 		const fs = await import('node:fs/promises');
+		const { default: encoder } = await import('sharp');
 		const ext = path.extname(outputPath);
 		const baseName = outputPath.slice(0, -ext.length);
 		const outputDir = path.dirname(outputPath);
@@ -1305,97 +1315,224 @@ Example:
 				texture.setURI(ensureUnique(hashTextureURI(uri, texture)));
 			}
 		};
-		
+		const getGeometryStats = (doc: import('@gltf-transform/core').Document): { vertices: number; triangles: number } => {
+			let vertices = 0;
+			let triangles = 0;
+
+			for (const mesh of doc.getRoot().listMeshes()) {
+				for (const primitive of mesh.listPrimitives()) {
+					const position = primitive.getAttribute('POSITION');
+					if (position) {
+						vertices += position.getCount();
+					}
+
+					const indices = primitive.getIndices();
+					if (indices) {
+						triangles += Math.floor(indices.getCount() / 3);
+					} else if (position) {
+						triangles += Math.floor(position.getCount() / 3);
+					}
+				}
+			}
+
+			return { vertices, triangles };
+		};
+		const getTextureMaxSize = (doc: import('@gltf-transform/core').Document): number => {
+			let maxSize = 0;
+			for (const texture of doc.getRoot().listTextures()) {
+				const image = texture.getImage();
+				const mimeType = texture.getMimeType();
+				if (!image || !supportedTextureMimeTypes.has(mimeType)) continue;
+				const size = ImageUtils.getSize(image, mimeType);
+				if (!size) continue;
+				maxSize = Math.max(maxSize, size[0], size[1]);
+			}
+			return maxSize;
+		};
+		const getCumulativeTargetTriangles = (originalTriangles: number, level: number): number => {
+			return Math.max(1, Math.floor(originalTriangles * Math.pow(baseRatio, level)));
+		};
+		const downsampleTextures = async (doc: import('@gltf-transform/core').Document): Promise<boolean> => {
+			const currentMaxSize = getTextureMaxSize(doc);
+			if (currentMaxSize <= minTextureMaxSize) return false;
+
+			let resized = false;
+			for (const texture of doc.getRoot().listTextures()) {
+				const image = texture.getImage();
+				const mimeType = texture.getMimeType();
+				if (!image || !supportedTextureMimeTypes.has(mimeType)) continue;
+				const size = ImageUtils.getSize(image, mimeType);
+				if (!size) continue;
+
+				const dstWidth = Math.max(1, Math.floor(size[0] * baseRatio));
+				const dstHeight = Math.max(1, Math.floor(size[1] * baseRatio));
+				if (Math.max(dstWidth, dstHeight) < minTextureMaxSize) continue;
+				if (dstWidth === size[0] && dstHeight === size[1]) continue;
+
+				const format = mimeType.split('/').pop() === 'jpeg' ? 'jpeg' : mimeType.split('/').pop();
+				const dstImage = await encoder(image)
+					.resize(dstWidth, dstHeight, { fit: 'fill', kernel: TextureResizeFilter.LANCZOS3 })
+					.toFormat(format as 'jpeg' | 'png' | 'webp' | 'avif')
+					.toBuffer();
+				texture.setImage(BufferUtils.toView(dstImage as Buffer<ArrayBuffer>)).setMimeType(mimeType);
+				resized = true;
+			}
+
+			return resized;
+		};
+		const tryCreateGeometryLOD = async (
+			sourceDoc: import('@gltf-transform/core').Document,
+			previousTriangles: number,
+		): Promise<{
+			document: import('@gltf-transform/core').Document;
+			triangles: number;
+			targetTriangles: number;
+			simplificationError: number;
+		} | null> => {
+			if (previousTriangles <= 1) return null;
+
+			const targetTriangles = Math.max(1, Math.floor(previousTriangles * baseRatio));
+			const progressiveRatio = Math.min(baseRatio, targetTriangles / previousTriangles);
+			const baseError = Number(options.error);
+			const errorAttempts = [...new Set([baseError, Math.max(baseError * 4, 0.01), Math.max(baseError * 16, 0.1), 1])];
+			const ratioAttempts = [
+				...new Set([
+					progressiveRatio,
+					Math.max(progressiveRatio - 0.05, 0.05),
+					Math.max(progressiveRatio - 0.1, 0.05),
+					Math.max(progressiveRatio - 0.15, 0.05),
+					0.25,
+				]),
+			];
+			const lockBorderAttempts = options.lockBorder ? [true, false] : [false];
+
+			let bestTriangles = previousTriangles;
+
+			for (const lockBorder of lockBorderAttempts) {
+				for (const error of errorAttempts) {
+					for (const ratio of ratioAttempts) {
+						const attemptDoc = cloneDocument(sourceDoc);
+						const simplificationError = await simplifyDocumentWithError(attemptDoc, {
+							simplifier: MeshoptSimplifier,
+							ratio,
+							error,
+							lockBorder,
+						});
+						const stats = getGeometryStats(attemptDoc);
+						bestTriangles = Math.min(bestTriangles, stats.triangles);
+
+						if (stats.triangles > 0 && stats.triangles <= targetTriangles) {
+							return {
+								document: attemptDoc,
+								triangles: stats.triangles,
+								targetTriangles,
+								simplificationError,
+							};
+						}
+					}
+				}
+			}
+
+			logger.warn(
+				`Geometry LOD stopped: target ${targetTriangles} triangles from previous ${previousTriangles}, best ${bestTriangles}.`,
+			);
+			return null;
+		};
+
 		// Object to store vertex count statistics
 		const lodStats = {
 			inputFile: inputPath,
 			outputDirectory: outputDir,
-			lodLevels: lodLevels,
+			lodLevels: 0,
+			maxLodLevels: maxLodLevels,
 			levels: [] as Array<{
 				level: number;
 				filePath: string;
 				targetRatio: number;
+				targetTriangleCount: number | null;
 				vertexCount: number;
 				triangleCount: number;
+				textureMaxSize: number;
+				geometrySimplified: boolean;
+				texturesResized: boolean;
 				simplificationError: number;
 			}>
 		};
-		
+
 		// Generate LOD levels
-		for (let level = 0; level < lodLevels; level++) {
-			const ratio = Math.pow(baseRatio, level);
+		let currentDoc = await io.read(inputPath);
+		let currentStats = getGeometryStats(currentDoc);
+		const originalStats = { ...currentStats };
+		let geometryExhausted = false;
+
+		for (let level = 0; level < maxLodLevels; level++) {
 			const lodOutputPath = `${baseName}_lod${level}${ext}`;
-			
-			logger.info(`Generating LOD ${level}: ${(ratio * 100).toFixed(2)}% vertices`);
-			
-			// Read input document (always use original input for consistency)
-			const inputDoc = await io.read(inputPath);
-			
+			let targetTriangles: number | null =
+				level === 0 ? null : getCumulativeTargetTriangles(originalStats.triangles, level);
 			let simplificationError = 0;
-			
-			// Level 0 is the original model, no simplification needed
-			if (level === 0) {
-				// Just copy the original file
-				uniquifyResourceURIs(`_lod${level}`, inputDoc);
-				await io.write(lodOutputPath, inputDoc);
-			} else {
-				// Apply simplification and get error value
-				simplificationError = await simplifyDocumentWithError(inputDoc, {
-					simplifier: MeshoptSimplifier,
-					ratio: ratio,
-					error: options.error,
-					lockBorder: options.lockBorder
-				});
-				
-				// Write the simplified document
-				uniquifyResourceURIs(`_lod${level}`, inputDoc);
-				await io.write(lodOutputPath, inputDoc);
-			}
-			
-			// Count vertices and triangles in all meshes
-			let totalVertices = 0;
-			let totalTriangles = 0;
-			
-			for (const mesh of inputDoc.getRoot().listMeshes()) {
-				for (const primitive of mesh.listPrimitives()) {
-					const position = primitive.getAttribute('POSITION');
-					if (position) {
-						totalVertices += position.getCount();
-					}
-					
-					// Count triangles based on indices
-					const indices = primitive.getIndices();
-					if (indices) {
-						totalTriangles += Math.floor(indices.getCount() / 3);
-					} else if (position) {
-						// For non-indexed geometry, estimate triangles
-						totalTriangles += Math.floor(position.getCount() / 3);
+			let geometrySimplified = false;
+			let texturesResized = false;
+
+			logger.info(`Generating LOD ${level}`);
+
+			if (level > 0) {
+				let nextDoc: import('@gltf-transform/core').Document | null = null;
+
+				if (!geometryExhausted) {
+					const geometryLOD = await tryCreateGeometryLOD(currentDoc, currentStats.triangles);
+					if (geometryLOD) {
+						nextDoc = geometryLOD.document;
+						simplificationError = geometryLOD.simplificationError;
+						geometrySimplified = true;
+					} else {
+						geometryExhausted = true;
 					}
 				}
+
+				if (!nextDoc) {
+					nextDoc = cloneDocument(currentDoc);
+				}
+
+				texturesResized = await downsampleTextures(nextDoc);
+				if (!geometrySimplified && !texturesResized) break;
+
+				currentDoc = nextDoc;
+				currentStats = getGeometryStats(currentDoc);
 			}
+
+			const outputDoc = cloneDocument(currentDoc);
+			uniquifyResourceURIs(`_lod${level}`, outputDoc);
+			await io.write(lodOutputPath, outputDoc);
 			
 			// Store statistics
 			lodStats.levels.push({
 				level: level,
 				filePath: path.basename(lodOutputPath),
-				targetRatio: ratio,
-				vertexCount: totalVertices,
-				triangleCount: totalTriangles,
+				targetRatio: Math.pow(baseRatio, level),
+				targetTriangleCount: targetTriangles,
+				vertexCount: currentStats.vertices,
+				triangleCount: currentStats.triangles,
+				textureMaxSize: getTextureMaxSize(currentDoc),
+				geometrySimplified,
+				texturesResized,
 				simplificationError: simplificationError
 			});
 			
 			if (level === 0) {
-				logger.info(`LOD ${level}: ${totalVertices} vertices, ${totalTriangles} triangles (original)`);
+				logger.info(`LOD ${level}: ${currentStats.vertices} vertices, ${currentStats.triangles} triangles (original)`);
 			} else {
-				logger.info(`LOD ${level}: ${totalVertices} vertices, ${totalTriangles} triangles, error: ${simplificationError.toFixed(6)}`);
+				logger.info(
+					`LOD ${level}: ${currentStats.vertices} vertices, ${currentStats.triangles} triangles, texture max ${getTextureMaxSize(currentDoc)}px, error: ${simplificationError.toFixed(6)}`,
+				);
 			}
 		}
+		lodStats.lodLevels = lodStats.levels.length;
 		
 		// Write statistics to JSON file
 		const statsFilePath = path.join(outputDir, `${path.basename(baseName)}_lod_stats.json`);
 		await fs.writeFile(statsFilePath, JSON.stringify(lodStats, null, 2));
 		
-		logger.info(`Generated ${lodLevels} LOD levels successfully`);
+		logger.info(`Generated ${lodStats.lodLevels} LOD levels successfully`);
 		logger.info(`Vertex statistics saved to: ${statsFilePath}`);
 	});
 

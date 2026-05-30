@@ -1,21 +1,30 @@
+---
+title: 纹理图集（Texture Atlas） | glTF Transform
+snippet: 将多个材质纹理合并到纹理图集，减少纹理数量与 GPU 绑定成本。支持 KHR_texture_transform 与几何 UV 两种重映射模式。
+---
+
 # 纹理图集（Texture Atlas）
 
-将指定材质纹理合并到若干张“纹理图集”并更新引用，减少纹理数量、降低 GPU 绑定与切换成本。支持两种重映射模式：
+将指定材质纹理合并到若干张“纹理图集”并更新引用，减少纹理数量、降低 GPU 绑定与切换成本。适用于材质较多、纹理尺寸较小、希望合并 draw call 或降低纹理切换开销的场景。
 
-- texture_transform：不改动几何 UV，写入 KHR_texture_transform 的 offset/scale
-- geometry：直接修改几何 UV 到图集位置，不依赖扩展
+支持两种 UV 重映射模式：
+
+- **texture_transform**：不改动几何 UV，写入 [KHR_texture_transform](/modules/extensions/classes/KHRTextureTransform) 的 offset/scale。运行环境支持该扩展时优先推荐。
+- **geometry**：直接修改几何 UV 到图集位置，不依赖扩展。适合目标引擎不支持 KHR_texture_transform 的情况。
 
 合并完成后会自动清理未再被引用的原始纹理资源。
 
 ## 安装与环境
-- Node 环境建议安装 sharp 以获得更快更好的图集生成与编码。
-- CLI 已内置 atlas 命令；代码方式通过 @gltf-transform/functions 暴露 textureAtlas。
+
+- Node 环境建议安装 [Sharp](https://sharp.pixelplumbing.com/) 以获得更快更好的图集生成与编码。
+- CLI 已内置 `atlas` 命令；代码方式通过 `@gltf-transform/functions` 暴露 [`textureAtlas`](/modules/functions/functions/textureAtlas) transform。
 
 ## 命令行用法
-- 基本形式
+
+基本形式：
 
 ```bash
-node packages/cli/bin/cli.js atlas <input> <output> [options]
+gltf-transform atlas <input> <output> [options]
 ```
 
 - 选项
@@ -28,10 +37,10 @@ node packages/cli/bin/cli.js atlas <input> <output> [options]
   - `--remap <mode>`：重映射方式，`texture_transform` 或 `geometry`。默认 `texture_transform`
   - `--format <fmt>`：输出图集格式 `png|webp|avif`。默认 `png`
 
-- 示例：写入 KHR_texture_transform，不改动 UV
+示例：写入 KHR_texture_transform，不改动 UV
 
 ```bash
-node packages/cli/bin/cli.js atlas input/model.gltf output/model.atlas.gltf \
+gltf-transform atlas input/model.gltf output/model.atlas.gltf \
   --types baseColor,normal \
   --max-size 2048 \
   --padding 2 \
@@ -39,10 +48,10 @@ node packages/cli/bin/cli.js atlas input/model.gltf output/model.atlas.gltf \
   --remap texture_transform
 ```
 
-- 示例：几何 UV 重映射（推荐）
+示例：几何 UV 重映射（不依赖扩展）
 
 ```bash
-node packages/cli/bin/cli.js atlas input/model.gltf output/model.atlas.geometry.gltf \
+gltf-transform atlas input/model.gltf output/model.atlas.geometry.gltf \
   --types baseColor,normal,metallicRoughness,occlusion,emissive \
   --max-size 1024 \
   --padding 2 \
@@ -128,10 +137,11 @@ await io.write('output/model.atlas.geometry.gltf', document);
 - 使用 `inspect` 查看材质与纹理摘要、扩展使用情况：
 
 ```bash
-node packages/cli/bin/cli.js inspect output/model.atlas.geometry.gltf --format md
+gltf-transform inspect output/model.atlas.geometry.gltf --format md
 ```
 
 ## 源码参考
-- 功能实现：[texture-atlas.ts](file:///d:/MEGAHUB/gltf-transform-TextureAtlas/glTF-Transform/packages/functions/src/texture-atlas.ts)
-- CLI 命令与参数：[cli.ts:atlas](file:///d:/MEGAHUB/gltf-transform-TextureAtlas/glTF-Transform/packages/cli/src/cli.ts#L1322-L1365)
-- 扩展实现（KHR_texture_transform）：[texture-transform.ts](file:///d:/MEGAHUB/gltf-transform-TextureAtlas/glTF-Transform/packages/extensions/src/khr-texture-transform/texture-transform.ts)
+
+- 功能实现：[`texture-atlas.ts`](https://github.com/donmccurdy/glTF-Transform/blob/main/packages/functions/src/texture-atlas.ts)
+- CLI 命令与参数：[`cli.ts`（`atlas` 命令）](https://github.com/donmccurdy/glTF-Transform/blob/main/packages/cli/src/cli.ts)
+- 扩展实现（KHR_texture_transform）：[`texture-transform.ts`](https://github.com/donmccurdy/glTF-Transform/blob/main/packages/extensions/src/khr-texture-transform/texture-transform.ts)

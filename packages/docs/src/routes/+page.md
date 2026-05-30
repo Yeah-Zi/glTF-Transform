@@ -132,6 +132,9 @@ gltf-transform resize input.glb output.glb --width 1024 --height 1024
 # Compress textures with WebP.
 gltf-transform webp input.glb output.glb --slots "baseColor"
 
+# Merge textures into atlases (see /texture-atlas).
+gltf-transform atlas input.glb output.glb --types baseColor,normal --max-size 2048 --format webp
+
 # Compress textures with KTX2 + Basis Universal codecs, UASTC and ETC1S.
 gltf-transform uastc input.glb output1.glb \
     --slots "{normalTexture,occlusionTexture,metallicRoughnessTexture}" \

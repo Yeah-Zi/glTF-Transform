@@ -8,6 +8,7 @@ glTF Transform CLI 是一个功能强大的命令行工具，专门用于处理�
 - 3D 模型文件大小优化
 - 几何数据压缩（Draco、Meshopt）
 - 纹理压缩和格式转换
+- 纹理图集合并与 UV 重映射
 - 场景图优化和简化
 - 材质系统转换
 - 动画数据处理
@@ -416,6 +417,67 @@ gltf-transform <command> --help
 - `--width <pixels>`: 输出纹理的最大宽度（像素）
 - `--height <pixels>`: 输出纹理的最大高度（像素）
 
+#### `atlas` - 纹理图集合并
+**功能描述：** 将多个材质的纹理按槽位类型合并到若干张纹理图集中，更新材质引用并做 UV 重映射，以减少纹理数量、降低 GPU 绑定与纹理切换开销。合并完成后会自动移除不再被引用的原始纹理。
+
+**适用场景：**
+- 模型材质较多、单张纹理尺寸较小
+- 希望减少 draw call 前的纹理资源数量
+- 需要为 Web/移动端降低纹理切换成本
+
+**参数：**
+- `<input>`: 输入文件路径
+- `<output>`: 输出文件路径
+
+**选项：**
+- `--types <types>`: 需要合并的纹理类型，逗号分隔，默认：`baseColor,normal,metallicRoughness,occlusion,emissive`
+- `--max-size <size>`: 单页图集最大尺寸（像素），默认：4096
+- `--padding <px>`: 每个精灵周围的像素留白，默认：2
+- `--rotate <bool>`: 是否允许旋转打包，默认：false（当前实现未启用旋转）
+- `--pow2 <bool>`: 图集尺寸按 2 的幂调整，更利于 GPU，默认：true
+- `--shrink <bool>`: 收缩画布到最小使用区域，默认：true
+- `--remap <mode>`: UV 重映射方式，默认：`texture_transform`
+  - `texture_transform`：不改动几何 UV，写入 `KHR_texture_transform` 的 offset/scale。目标引擎支持该扩展时优先推荐。
+  - `geometry`：直接修改几何 UV 到图集位置，不依赖扩展。适合不支持 `KHR_texture_transform` 的运行环境。
+- `--format <fmt>`: 输出图集格式（`png`|`webp`|`avif`），默认：`png`
+
+**行为说明：**
+- 每种纹理类型（baseColor、normal 等）单独生成图集页，尺寸受 `maxSize`、`pow2`、`shrink` 控制
+- `padding` 保留边距，降低采样时纹理出血（bleeding）风险
+- 所有被合并的材质槽位改为引用图集纹理
+- 原始纹理在不再被引用时会被从文档中移除
+
+**几何模式（`--remap geometry`）补充说明：**
+- 若多个槽位原本共享同一 UV 集，会为各槽位分配独立的 `TEXCOORD_N` 索引，避免互相覆盖
+- 依据采样器 `wrapS`/`wrapT` 对 UV 做归一化：`CLAMP_TO_EDGE` 裁剪到 `[0,1]`，`REPEAT` 取模，`MIRRORED_REPEAT` 镜像重复
+- 新增 `TEXCOORD_N (N>0)` 时会按规范补齐缺失的低索引
+
+**依赖：** 需要 Sharp 进行图集合成与编码。
+
+**示例：**
+
+```bash
+# texture_transform 模式：保留原始 UV，写入 KHR_texture_transform
+gltf-transform atlas input.glb output.atlas.glb \
+  --types baseColor,normal \
+  --max-size 2048 \
+  --padding 2 \
+  --format webp \
+  --remap texture_transform
+
+# geometry 模式：直接改写几何 UV，不依赖扩展
+gltf-transform atlas input.glb output.atlas.geometry.glb \
+  --types baseColor,normal,metallicRoughness,occlusion,emissive \
+  --max-size 1024 \
+  --padding 2 \
+  --format png \
+  --shrink true \
+  --remap geometry
+
+# 合并后检查材质与纹理
+gltf-transform inspect output.atlas.geometry.glb --format md
+```
+
 #### `texture-compress` - 纹理压缩
 **功能描述：** 使用 Sharp 压缩纹理。
 
@@ -527,6 +589,19 @@ gltf-transform lod input.glb output/lod.glb --error 0.001
 ### 纹理优化示例
 
 ```bash
+# 纹理图集合并（KHR_texture_transform 模式）
+gltf-transform atlas input.glb output.glb \
+  --types baseColor,normal \
+  --max-size 2048 \
+  --format webp \
+  --remap texture_transform
+
+# 纹理图集合并（几何 UV 重映射，不依赖扩展）
+gltf-transform atlas input.glb output.geometry.glb \
+  --types baseColor,normal,metallicRoughness \
+  --max-size 1024 \
+  --remap geometry
+
 # WebP 纹理压缩
 gltf-transform texture-compress input.glb output.glb --target-format webp --quality 85
 
@@ -613,6 +688,7 @@ gltf-transform inspect input.glb --format csv
 
 - **几何压缩**: Draco 用于高质量压缩，Meshopt 用于快速解码
 - **纹理压缩**: WebP 用于网络传输，KTX2 用于 GPU 性能
+- **纹理图集**: 材质多、纹理小时用 `atlas` 合并，减少纹理数量；引擎支持 `KHR_texture_transform` 时优先 `--remap texture_transform`
 - **量化**: 在压缩前应用量化以获得最佳效果
 
 ### 兼容性考虑

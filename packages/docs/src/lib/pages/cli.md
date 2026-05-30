@@ -54,6 +54,12 @@ and whether the scene is generally geometry-heavy, texture-heavy,
 has too many draw calls, etc. Apply individual commands below to deal with any of
 these issues as needed.
 
+Merge many small material textures into atlases to reduce texture count and GPU binding overhead. See the [Texture Atlas](/texture-atlas) guide for remapping modes and options:
+
+```bash
+gltf-transform atlas input.glb output.glb --types baseColor,normal --max-size 2048 --format webp
+```
+
 Full command list:
 
 <!-- begin:cli_help -->
@@ -103,16 +109,20 @@ Full command list:
     unwrap                               Generate texcoords                                     
     reorder                              Optimize vertex data for locality of reference         
     simplify                             Simplify mesh, reducing number of vertices             
+    lod                                  Generate multiple LOD (Level of Detail) levels         
                                                                                                 
                                                                                                 
                                          🎨 MATERIAL ─────────────────────────────────────────  
     metalrough                           Convert materials from spec/gloss to metal/rough       
     palette                              Creates palette textures and merges materials          
+    bake-factors                         Bake scalar material factors into textures             
     unlit                                Convert materials from metal/rough to unlit            
                                                                                                 
                                                                                                 
                                          🖼  TEXTURE ──────────────────────────────────────────  
     resize                               Resize PNG or JPEG textures                            
+    atlas                                Merge textures into atlases and remap UV by            
+                                         KHR_texture_transform                                  
     etc1s                                KTX + Basis ETC1S texture compression                  
     uastc                                KTX + Basis UASTC texture compression                  
     ktxdecompress                        KTX + Basis texture decompression                      

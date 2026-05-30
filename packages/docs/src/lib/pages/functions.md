@@ -48,7 +48,7 @@ function backfaceCulling(options) {
 await io.write('output.glb', document);
 ```
 
-For a complete list of available transforms, see the navigation sidebar.
+For a complete list of available transforms, see the navigation sidebar. For texture atlas merging and UV remapping, see the [Texture Atlas](/texture-atlas) guide.
 
 ## Functions
 

@@ -11,15 +11,30 @@ import type sharp from 'sharp';
 import { assignDefaults, createTransform, fitPowerOfTwo, fitWithin, isUsed } from './utils.js';
 const NAME = 'textureAtlas';
 type AtlasType = 'baseColor' | 'normal' | 'metallicRoughness' | 'occlusion' | 'emissive';
+
+/** Options for the {@link textureAtlas} transform. */
 export interface TextureAtlasOptions {
+	/** Sharp encoder instance. Required for atlas generation. */
 	encoder?: unknown;
+	/** Material texture slots to merge into atlases. Default: all PBR slots. */
 	types?: AtlasType[];
+	/** Maximum atlas page dimension, in pixels. Default: 4096. */
 	maxSize?: number;
+	/** Padding around each sprite, in pixels. Default: 2. */
 	padding?: number;
+	/** Allow rotation during packing. Default: false. */
 	rotate?: boolean;
+	/** Round atlas dimensions up to the next power of two. Default: true. */
 	pow2?: boolean;
+	/** Shrink atlas canvas to the minimal used area. Default: true. */
 	shrink?: boolean;
+	/**
+	 * UV remapping strategy. `texture_transform` writes KHR_texture_transform
+	 * offset/scale; `geometry` rewrites TEXCOORD attributes directly. Default:
+	 * `texture_transform`.
+	 */
 	remap?: 'texture_transform' | 'geometry';
+	/** Output image format for generated atlas pages. Default: PNG. */
 	format?: { mimeType: string };
 }
 const DEFAULTS: Required<Pick<TextureAtlasOptions, 'types' | 'maxSize' | 'padding' | 'rotate' | 'pow2' | 'shrink' | 'remap'>> &
@@ -114,6 +129,49 @@ async function encodeToFormat(encoder: typeof sharp | null, image: Uint8Array, s
 			return image;
 	}
 }
+/**
+ * Merge material textures into texture atlases and remap UVs to the packed
+ * layout. Each requested slot type (base color, normal, metallic/roughness,
+ * occlusion, emissive) is packed into one or more atlas pages. Material
+ * references are updated to point at the atlas textures, and unused source
+ * textures are removed.
+ *
+ * Two remapping strategies are supported:
+ *
+ * - `texture_transform`: Preserves existing geometry UVs and writes
+ *   {@link KHRTextureTransform} offset/scale on each affected texture slot.
+ * - `geometry`: Rewrites geometry UVs into atlas space and assigns a dedicated
+ *   `TEXCOORD_n` attribute per affected slot.
+ *
+ * Requires a Sharp encoder in Node.js environments. See the
+ * [Texture Atlas guide](/texture-atlas) for CLI usage and examples.
+ *
+ * Example:
+ *
+ * ```typescript
+ * import { NodeIO } from '@gltf-transform/core';
+ * import { KHRONOS_EXTENSIONS } from '@gltf-transform/extensions';
+ * import { textureAtlas } from '@gltf-transform/functions';
+ * import sharp from 'sharp';
+ *
+ * const io = new NodeIO().registerExtensions(KHRONOS_EXTENSIONS);
+ * const document = await io.read('input.glb');
+ *
+ * await document.transform(
+ * 	textureAtlas({
+ * 		encoder: sharp,
+ * 		types: ['baseColor', 'normal'],
+ * 		maxSize: 2048,
+ * 		remap: 'texture_transform',
+ * 		format: { mimeType: 'image/webp' },
+ * 	}),
+ * );
+ *
+ * await io.write('output.glb', document);
+ * ```
+ *
+ * @category Transforms
+ */
 export function textureAtlas(_options: TextureAtlasOptions): Transform {
 	const options = assignDefaults(DEFAULTS, _options);
 	return createTransform(NAME, async (document: Document): Promise<void> => {
