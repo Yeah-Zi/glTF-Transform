@@ -23,6 +23,7 @@
     "lint:ci": "biome ci packages/*/{src,test}",
     "validate": "scripts/validate.js",
     "bench": "node benchmarks/benchmark.ts",
+    "build:exe": "yarn build && yarn workspace @gltf-transform/cli build:exe",
     "preversion": "yarn test",
     "version": "yarn clean:dist && yarn build && yarn bench --report-version --print && yarn run docs:cli && git add -u benchmarks/results packages/docs",
     "postpublish": "git push && git push --tags && yarn run docs:deploy:prod",

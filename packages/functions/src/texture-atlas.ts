@@ -62,42 +62,88 @@ interface Placement {
 	w: number;
 	h: number;
 }
+function squarePageSize(usedW: number, usedH: number, padding: number): { width: number; height: number } {
+	const side = Math.max(usedW + padding, usedH + padding, 1);
+	return { width: side, height: side };
+}
 function pack(sprites: Sprite[], maxSize: number, padding: number): { placements: Placement[]; pages: { width: number; height: number }[] } {
-	const placements: Placement[] = [];
+	const placements: Placement[] = new Array(sprites.length);
 	const pages: { width: number; height: number }[] = [];
+	const contentMax = maxSize - padding * 2;
+
+	const order = sprites.map((_, i) => i);
+	order.sort((a, b) => {
+		const areaA = sprites[a].size[0] * sprites[a].size[1];
+		const areaB = sprites[b].size[0] * sprites[b].size[1];
+		if (areaB !== areaA) return areaB - areaA;
+		return Math.max(sprites[b].size[0], sprites[b].size[1]) - Math.max(sprites[a].size[0], sprites[a].size[1]);
+	});
+
+	let totalArea = 0;
+	let maxSprite = 0;
+	for (const s of sprites) {
+		totalArea += s.size[0] * s.size[1];
+		maxSprite = Math.max(maxSprite, s.size[0], s.size[1]);
+	}
+	const targetSide = Math.min(contentMax, Math.max(maxSprite, Math.ceil(Math.sqrt(totalArea * 1.05))));
+
 	let page = 0;
 	let x = padding;
 	let y = padding;
 	let rowH = 0;
 	let usedW = 0;
 	let usedH = 0;
-	for (const s of sprites) {
+
+	let pageHasContent = false;
+
+	const flushPage = (): void => {
+		if (!pageHasContent) return;
+		pages.push(squarePageSize(usedW, usedH, padding));
+		pageHasContent = false;
+		page++;
+		x = padding;
+		y = padding;
+		rowH = 0;
+		usedW = 0;
+		usedH = 0;
+	};
+
+	for (const idx of order) {
+		const s = sprites[idx];
 		const w = s.size[0];
 		const h = s.size[1];
-		if (w > maxSize || h > maxSize) {
+		if (w > contentMax || h > contentMax) {
 			throw new Error(`${NAME}: sprite exceeds maxSize (${w}x${h} > ${maxSize}).`);
 		}
-		if (x + w + padding > maxSize) {
+
+		const rowLimit = Math.min(targetSide + padding, maxSize);
+		if (x + w + padding > rowLimit && x > padding) {
+			x = padding;
+			y += rowH + padding;
+			rowH = 0;
+		}
+		if (x + w + padding > maxSize && x > padding) {
 			x = padding;
 			y += rowH + padding;
 			rowH = 0;
 		}
 		if (y + h + padding > maxSize) {
-			pages.push({ width: Math.max(usedW + padding, 1), height: Math.max(usedH + padding, 1) });
-			page++;
-			x = padding;
-			y = padding;
-			rowH = 0;
-			usedW = 0;
-			usedH = 0;
+			flushPage();
 		}
-		placements.push({ page, x, y, w, h });
+		if (y + h + padding > maxSize) {
+			throw new Error(`${NAME}: sprite exceeds maxSize (${w}x${h} > ${maxSize}).`);
+		}
+
+		placements[idx] = { page, x, y, w, h };
+		pageHasContent = true;
 		x += w + padding;
 		rowH = Math.max(rowH, h);
 		usedW = Math.max(usedW, x);
 		usedH = Math.max(usedH, y + h);
 	}
-	pages.push({ width: Math.max(usedW + padding, 1), height: Math.max(usedH + padding, 1) });
+	if (pageHasContent) {
+		pages.push(squarePageSize(usedW, usedH, padding));
+	}
 	return { placements, pages };
 }
 function getSlot(material: Material, type: AtlasType): { texture: Texture | null; set: (t: Texture | null) => Material; info: ReturnType<Material['getBaseColorTextureInfo']> | null } {
@@ -211,7 +257,8 @@ export function textureAtlas(_options: TextureAtlasOptions): Transform {
 				let width = pages[p].width;
 				let height = pages[p].height;
 				if (options.pow2) {
-					[width, height] = fitPowerOfTwo([width, height], 'ceil-pot');
+					const side = Math.max(width, height);
+					[width, height] = fitPowerOfTwo([side, side], 'ceil-pot');
 				}
 				if (!options.shrink) {
 					width = options.maxSize;

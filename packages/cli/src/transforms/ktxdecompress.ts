@@ -7,7 +7,7 @@ import pLimit from 'p-limit';
 import { join } from 'path';
 import tmp from 'tmp';
 import { formatBytes } from '../utils/format.js';
-import { spawn, waitExit } from '../utils/process.js';
+import { spawnKtx, waitExit } from '../utils/ktx.js';
 import { checkKTXSoftware } from './toktx.js';
 
 const NUM_CPUS = os.cpus().length || 1; // microsoft/vscode#112122
@@ -79,7 +79,7 @@ export const ktxdecompress = function (options: KTXDecompressOptions = KTX_DECOM
 
 				// COMPRESS: Run `ktx create` CLI tool.
 				// eslint-disable-next-line @typescript-eslint/no-unused-vars
-				const [status, _stdout, stderr] = await waitExit(spawn('ktx', ['extract', srcPath, dstPath]));
+				const [status, _stdout, stderr] = await waitExit(await spawnKtx(['extract', srcPath, dstPath]));
 
 				if (status !== 0) {
 					logger.error(`${prefix}: Failed → \n\n${stderr.toString()}`);

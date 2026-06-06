@@ -31,7 +31,7 @@ import type sharp from 'sharp';
 import tmp from 'tmp';
 import { formatBytes } from '../utils/format.js';
 import { MICROMATCH_OPTIONS } from '../utils/match.js';
-import { commandExists, spawn, TrustedCommand, waitExit } from '../utils/process.js';
+import { resolveKtxCommand, spawnKtx, waitExit as waitKtxExit } from '../utils/ktx.js';
 
 const NUM_CPUS = os.cpus().length || 1; // microsoft/vscode#112122
 const KTX_SOFTWARE_VERSION_MIN = '4.3.0';
@@ -277,7 +277,7 @@ export const toktx = function (options: ETC1SOptions | UASTCOptions): Transform 
 				logger.debug(`${prefix}: Spawning → ktx ${params.join(' ')}`);
 
 				// COMPRESS: Run `ktx create` CLI tool.
-				const [status, _stdout, stderr] = await waitExit(spawn('ktx', params as string[]));
+				const [status, _stdout, stderr] = await waitKtxExit(await spawnKtx(params as string[]));
 
 				if (status !== 0) {
 					logger.error(`${prefix}: Failed → \n\n${stderr.toString()}`);
@@ -435,14 +435,14 @@ function createParams(
 }
 
 export async function checkKTXSoftware(logger: ILogger): Promise<string> {
-	if (!(await commandExists(TrustedCommand.KTX)) && !process.env.CI) {
+	if (!(await resolveKtxCommand()) && !process.env.CI) {
 		throw new Error(
 			`Command "ktx" not found. Please install KTX-Software ${KTX_SOFTWARE_VERSION_MIN}+, ` +
 				'from:\n\nhttps://github.com/KhronosGroup/KTX-Software',
 		);
 	}
 
-	const [status, stdout, stderr] = await waitExit(spawn('ktx', ['--version']));
+	const [status, stdout, stderr] = await waitKtxExit(await spawnKtx(['--version']));
 
 	const version = ((stdout || stderr) as string)
 		.replace(/ktx version:\s+/, '')

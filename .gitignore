@@ -20,6 +20,10 @@ node_modules
 
 # build artifacts
 packages/**/dist/*
+packages/cli/.caxa-staging
+packages/cli/.ktx-download
+packages/cli/.ktx-extract
+packages/cli/vendor/ktx
 packages/**/.rts2*
 
 # documentation
