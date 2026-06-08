@@ -14,8 +14,21 @@ const caxaBin = join(nodeModules, '@appthreat/caxa/build/index.mjs');
 
 const workspacePackages = ['core', 'extensions', 'functions'];
 
+function nodeMajor(nodeExe) {
+	return Number.parseInt(execFileSync(nodeExe, ['--version'], { encoding: 'utf8' }).trim().replace(/^v/, ''), 10);
+}
+
 function resolveNodeExe() {
-	if (process.env.NODE_EXE) return process.env.NODE_EXE;
+	if (process.env.NODE_EXE) {
+		try {
+			if (nodeMajor(process.env.NODE_EXE) >= 22) return process.env.NODE_EXE;
+		} catch {
+			// fall through
+		}
+	}
+
+	const runningMajor = Number.parseInt(process.version.replace(/^v/, ''), 10);
+	if (runningMajor >= 22) return process.execPath;
 
 	const candidates = new Set([process.execPath]);
 	try {
@@ -29,9 +42,7 @@ function resolveNodeExe() {
 	for (const candidate of candidates) {
 		if (!candidate) continue;
 		try {
-			const version = execFileSync(candidate, ['--version'], { encoding: 'utf8' }).trim();
-			const major = Number.parseInt(version.replace(/^v/, ''), 10);
-			if (major >= 22) return candidate;
+			if (nodeMajor(candidate) >= 22) return candidate;
 		} catch {
 			// try next candidate
 		}

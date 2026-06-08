@@ -255,30 +255,35 @@ certain aspects of data layout may change slightly with this process:
 
 // TILE
 program
-	.command('tile', 'Optimize tile GLB: palette → dedup/join/quantize/ktx2')
+	.command('tile', 'Optimize tile GLB: palette → atlas → dedup/join/quantize/ktx2')
 	.help(
 		`
 Runs a tile-specific optimization pipeline in a single read/write pass:
 
-  1. palette   — merge solid-color materials
-  2. optimize  — dedup, instance, flatten, join, weld, prune, sparse,
-                 quantize (unless --qt), and KTX2 (unless --sgk)
+  1. palette   — merge solid-color materials for atlas grouping
+  2. atlas     — pack baseColor + normal textures into atlases
+  3. optimize  — dedup, instance, flatten, join, weld, prune, sparse,
+                 quantize, and KTX2
+
+Each step can be skipped with --<step> false (defaults to true):
+
+  --palette --atlas --dedup --instance --flatten --join --weld --prune
+  --sparse --quantize --ktx2
+
+Legacy skip flags --qt and --sgk are aliases for --quantize false and --ktx2 false.
 
 Examples:
 
   ▸ gltf-transform tile input.glb
-  ▸ gltf-transform tile input.glb output.glb
-  ▸ gltf-transform tile input.glb --output-dir ./optimized
+  ▸ gltf-transform tile input.glb --palette false --atlas false
+  ▸ gltf-transform tile input.glb --dedup false --quantize false --ktx2 false
   ▸ gltf-transform tile input.glb --qt --sgk
 		`.trim(),
 	)
 	.argument('<input>', INPUT_DESC)
 	.argument('[output]', 'Optional output path; omit to replace input in place')
 	.option('--output-dir <dir>', 'Write output to <dir>/<input-basename> instead of [output]')
-	.option('--palette <bool>', 'Create palette textures and merge materials.', {
-		validator: Validator.BOOLEAN,
-		default: true,
-	})
+	.option('--palette <bool>', 'Run palette step.', { validator: Validator.BOOLEAN, default: true })
 	.option(
 		'--palette-min <min>',
 		'Minimum palette blocks required before generating palettes.',
@@ -288,19 +293,47 @@ Examples:
 		validator: Validator.NUMBER,
 		default: PALETTE_DEFAULTS.blockSize,
 	})
-	.option('--instance <bool>', 'Use GPU instancing with shared mesh references.', {
+	.option('--atlas <bool>', 'Run texture atlas step.', { validator: Validator.BOOLEAN, default: true })
+	.option('--atlas-types <types>', 'Texture slots to atlas, comma-separated.', {
+		validator: Validator.STRING,
+		default: 'baseColor,normal',
+	})
+	.option('--atlas-max-size <size>', 'Atlas page max dimension (px).', {
+		validator: Validator.NUMBER,
+		default: 4096,
+	})
+	.option('--atlas-padding <px>', 'Padding around each atlas sprite (px).', {
+		validator: Validator.NUMBER,
+		default: 2,
+	})
+	.option('--atlas-rotate <bool>', 'Allow rotation during atlas packing.', {
+		validator: Validator.BOOLEAN,
+		default: false,
+	})
+	.option('--atlas-pow2 <bool>', 'Round atlas dimensions up to power of two.', {
 		validator: Validator.BOOLEAN,
 		default: true,
 	})
+	.option('--atlas-shrink <bool>', 'Shrink atlas canvas to minimal used area.', {
+		validator: Validator.BOOLEAN,
+		default: true,
+	})
+	.option('--atlas-remap <mode>', 'UV remap strategy for atlases.', {
+		validator: ['texture_transform', 'geometry'],
+		default: 'texture_transform',
+	})
+	.option('--atlas-format <fmt>', 'Atlas output image format.', {
+		validator: ['png', 'webp', 'avif'],
+		default: 'png',
+	})
+	.option('--dedup <bool>', 'Run dedup step.', { validator: Validator.BOOLEAN, default: true })
+	.option('--instance <bool>', 'Run instance step.', { validator: Validator.BOOLEAN, default: true })
 	.option('--instance-min <min>', 'Minimum instances required for instancing.', {
 		validator: Validator.NUMBER,
 		default: INSTANCE_DEFAULTS.min,
 	})
-	.option('--flatten <bool>', 'Flatten scene graph.', { validator: Validator.BOOLEAN, default: true })
-	.option('--join <bool>', 'Join meshes and reduce draw calls. Requires --flatten.', {
-		validator: Validator.BOOLEAN,
-		default: true,
-	})
+	.option('--flatten <bool>', 'Run flatten step.', { validator: Validator.BOOLEAN, default: true })
+	.option('--join <bool>', 'Run join step. Requires --flatten.', { validator: Validator.BOOLEAN, default: true })
 	.option('--join-meshes <bool>', 'Join distinct meshes and nodes.', {
 		validator: Validator.BOOLEAN,
 		default: !JOIN_DEFAULTS.keepMeshes,
@@ -309,8 +342,8 @@ Examples:
 		validator: Validator.BOOLEAN,
 		default: !JOIN_DEFAULTS.keepNamed,
 	})
-	.option('--weld <bool>', 'Merge equivalent vertices.', { validator: Validator.BOOLEAN, default: true })
-	.option('--prune <bool>', 'Remove unreferenced properties.', { validator: Validator.BOOLEAN, default: true })
+	.option('--weld <bool>', 'Run weld step.', { validator: Validator.BOOLEAN, default: true })
+	.option('--prune <bool>', 'Run prune step.', { validator: Validator.BOOLEAN, default: true })
 	.option('--prune-attributes <bool>', 'Prune unused vertex attributes.', {
 		validator: Validator.BOOLEAN,
 		default: true,
@@ -320,12 +353,11 @@ Examples:
 		'Prune solid textures, converting them to material factors.',
 		{ validator: Validator.BOOLEAN, default: true },
 	)
-	.option('--sparse <bool>', 'Use sparse accessors for zero-filled arrays.', {
-		validator: Validator.BOOLEAN,
-		default: true,
-	})
-	.option('--qt', 'Skip quantize (input already quantized).', { validator: Validator.BOOLEAN, default: false })
-	.option('--sgk', 'Skip KTX2 compression (input already uses Basis/KTX2).', {
+	.option('--sparse <bool>', 'Run sparse step.', { validator: Validator.BOOLEAN, default: true })
+	.option('--quantize <bool>', 'Run quantize step.', { validator: Validator.BOOLEAN, default: true })
+	.option('--qt', 'Skip quantize (alias for --quantize false).', { validator: Validator.BOOLEAN, default: false })
+	.option('--ktx2 <bool>', 'Run KTX2 compression step.', { validator: Validator.BOOLEAN, default: true })
+	.option('--sgk', 'Skip KTX2 compression (alias for --ktx2 false).', {
 		validator: Validator.BOOLEAN,
 		default: false,
 	})
@@ -334,10 +366,24 @@ Examples:
 		default: 2048,
 	})
 	.action(async ({ args, options, logger }) => {
+		const atlasTypes = String(options.atlasTypes)
+			.split(',')
+			.map((s) => s.trim())
+			.filter(Boolean);
 		return runTile(io, logger, args.input as string, args.output as string | undefined, options.outputDir as string | undefined, {
 			palette: Boolean(options.palette),
 			paletteMin: Number(options.paletteMin),
 			paletteBlockSize: Number(options.paletteBlockSize),
+			atlas: Boolean(options.atlas),
+			atlasTypes: atlasTypes as ('baseColor' | 'normal' | 'metallicRoughness' | 'occlusion' | 'emissive')[],
+			atlasMaxSize: Number(options.atlasMaxSize),
+			atlasPadding: Number(options.atlasPadding),
+			atlasRotate: Boolean(options.atlasRotate),
+			atlasPow2: Boolean(options.atlasPow2),
+			atlasShrink: Boolean(options.atlasShrink),
+			atlasRemap: options.atlasRemap as 'texture_transform' | 'geometry',
+			atlasFormat: options.atlasFormat as 'png' | 'webp' | 'avif',
+			dedup: Boolean(options.dedup),
 			instance: Boolean(options.instance),
 			instanceMin: Number(options.instanceMin),
 			flatten: Boolean(options.flatten),
@@ -349,8 +395,8 @@ Examples:
 			pruneAttributes: Boolean(options.pruneAttributes),
 			pruneSolidTextures: Boolean(options.pruneSolidTextures),
 			sparse: Boolean(options.sparse),
-			qt: Boolean(options.qt),
-			sgk: Boolean(options.sgk),
+			quantize: Boolean(options.qt) ? false : Boolean(options.quantize),
+			ktx2: Boolean(options.sgk) ? false : Boolean(options.ktx2),
 			textureSize: Number(options.textureSize),
 			limitInputPixels: options.limitInputPixels as boolean,
 		});

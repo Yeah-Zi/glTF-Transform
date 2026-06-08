@@ -14,6 +14,7 @@ import {
 	prune,
 	quantize,
 	sparse,
+	textureAtlas,
 	weld,
 } from '@gltf-transform/functions';
 import micromatch from 'micromatch';
@@ -23,11 +24,23 @@ import type { Logger } from './program.js';
 import { Session } from './session.js';
 import { MICROMATCH_OPTIONS } from './utils/match.js';
 
+type AtlasType = 'baseColor' | 'normal' | 'metallicRoughness' | 'occlusion' | 'emissive';
+
 /** Options for the tile optimization pipeline. */
 export interface TileOptions {
 	palette?: boolean;
 	paletteMin?: number;
 	paletteBlockSize?: number;
+	atlas?: boolean;
+	atlasTypes?: AtlasType[];
+	atlasMaxSize?: number;
+	atlasPadding?: number;
+	atlasRotate?: boolean;
+	atlasPow2?: boolean;
+	atlasShrink?: boolean;
+	atlasRemap?: 'texture_transform' | 'geometry';
+	atlasFormat?: 'png' | 'webp' | 'avif';
+	dedup?: boolean;
 	instance?: boolean;
 	instanceMin?: number;
 	flatten?: boolean;
@@ -39,13 +52,17 @@ export interface TileOptions {
 	pruneAttributes?: boolean;
 	pruneSolidTextures?: boolean;
 	sparse?: boolean;
-	/** Skip quantize (input already quantized). */
-	qt?: boolean;
-	/** Skip KTX2 compression (input already uses Basis/KTX2). */
-	sgk?: boolean;
+	quantize?: boolean;
+	ktx2?: boolean;
 	textureSize?: number;
 	limitInputPixels?: boolean;
 }
+
+const ATLAS_MIME: Record<NonNullable<TileOptions['atlasFormat']>, string> = {
+	png: 'image/png',
+	webp: 'image/webp',
+	avif: 'image/avif',
+};
 
 /** Resolves the output path for a tile run. */
 export function resolveTileOutput(
@@ -66,10 +83,7 @@ export function resolveTileOutput(
 }
 
 /** Builds the transform pipeline for tile optimization. */
-export async function buildTileTransforms(
-	options: Required<TileOptions>,
-	encoder: typeof sharp,
-): Promise<Transform[]> {
+export function buildTileTransforms(options: Required<TileOptions>, encoder: typeof sharp): Transform[] {
 	const transforms: Transform[] = [];
 
 	if (options.palette) {
@@ -83,7 +97,23 @@ export async function buildTileTransforms(
 		);
 	}
 
-	transforms.push(dedup());
+	if (options.atlas && options.atlasTypes.length > 0) {
+		transforms.push(
+			textureAtlas({
+				encoder,
+				types: options.atlasTypes,
+				maxSize: options.atlasMaxSize,
+				padding: options.atlasPadding,
+				rotate: options.atlasRotate,
+				pow2: options.atlasPow2,
+				shrink: options.atlasShrink,
+				remap: options.atlasRemap,
+				format: { mimeType: ATLAS_MIME[options.atlasFormat] },
+			}),
+		);
+	}
+
+	if (options.dedup) transforms.push(dedup());
 
 	if (options.instance) {
 		transforms.push(instance({ min: options.instanceMin }));
@@ -115,9 +145,9 @@ export async function buildTileTransforms(
 
 	if (options.sparse) transforms.push(sparse());
 
-	if (!options.qt) transforms.push(quantize());
+	if (options.quantize) transforms.push(quantize());
 
-	if (!options.sgk) {
+	if (options.ktx2) {
 		const slotsUASTC = micromatch.makeRe(
 			'{normalTexture,occlusionTexture,metallicRoughnessTexture}',
 			MICROMATCH_OPTIONS,
@@ -159,6 +189,16 @@ export async function runTile(
 		palette: true,
 		paletteMin: PALETTE_DEFAULTS.min,
 		paletteBlockSize: PALETTE_DEFAULTS.blockSize,
+		atlas: true,
+		atlasTypes: ['baseColor', 'normal'],
+		atlasMaxSize: 4096,
+		atlasPadding: 2,
+		atlasRotate: false,
+		atlasPow2: true,
+		atlasShrink: true,
+		atlasRemap: 'texture_transform',
+		atlasFormat: 'png',
+		dedup: true,
 		instance: true,
 		instanceMin: INSTANCE_DEFAULTS.min,
 		flatten: true,
@@ -170,8 +210,8 @@ export async function runTile(
 		pruneAttributes: true,
 		pruneSolidTextures: true,
 		sparse: true,
-		qt: false,
-		sgk: false,
+		quantize: true,
+		ktx2: true,
 		textureSize: 2048,
 		limitInputPixels: true,
 		..._options,
@@ -179,7 +219,7 @@ export async function runTile(
 
 	const { writePath, inPlace } = resolveTileOutput(input, output, outputDir);
 	const { default: encoder } = await import('sharp');
-	const transforms = await buildTileTransforms(options, encoder);
+	const transforms = buildTileTransforms(options, encoder);
 
 	await mkdir(dirname(writePath), { recursive: true });
 
