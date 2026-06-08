@@ -1,12 +1,10 @@
 import { execFileSync } from 'node:child_process';
 import { createWriteStream } from 'node:fs';
 import { cpSync, existsSync, mkdirSync, readdirSync, rmSync } from 'node:fs';
-import { createRequire } from 'node:module';
 import { dirname, join } from 'node:path';
 import { fileURLToPath } from 'node:url';
 import { pipeline } from 'node:stream/promises';
 
-const require = createRequire(import.meta.url);
 const __dirname = dirname(fileURLToPath(import.meta.url));
 const pkgRoot = join(__dirname, '..');
 const vendorDir = join(pkgRoot, 'vendor', 'ktx');
@@ -30,15 +28,6 @@ async function downloadFile(url, destination) {
 	await pipeline(response.body, createWriteStream(destination));
 }
 
-function resolve7zip() {
-	const path7za = require('7zip-bin').path7za;
-	if (!existsSync(path7za)) {
-		throw new Error(`Bundled 7za not found at ${path7za}. Re-run yarn install.`);
-	}
-
-	return path7za;
-}
-
 function copyBinDirectory(sourceDir) {
 	mkdirSync(vendorDir, { recursive: true });
 	for (const entry of readdirSync(sourceDir)) {
@@ -46,14 +35,21 @@ function copyBinDirectory(sourceDir) {
 	}
 }
 
-function installWindowsFrom7zip(installerPath) {
-	const extractDir = join(pkgRoot, '.ktx-extract');
-	rmSync(extractDir, { recursive: true, force: true });
-	mkdirSync(extractDir, { recursive: true });
+function installWindowsFromNsis(installerPath) {
+	const installDir = join(pkgRoot, '.ktx-install');
+	rmSync(installDir, { recursive: true, force: true });
+	mkdirSync(installDir, { recursive: true });
 
-	execFileSync(resolve7zip(), ['x', installerPath, `-o${extractDir}`, '-y'], { stdio: 'inherit' });
-	copyBinDirectory(join(extractDir, 'bin'));
-	rmSync(extractDir, { recursive: true, force: true });
+	// KTX Windows releases use an NSIS installer; 7zip cannot open the .exe as an archive.
+	execFileSync('cmd', ['/c', installerPath, '/S', `/D=${installDir}`], { stdio: 'inherit' });
+
+	const installBin = join(installDir, 'bin');
+	if (!existsSync(join(installBin, 'ktx.exe'))) {
+		throw new Error(`NSIS install did not produce ${join(installBin, 'ktx.exe')}`);
+	}
+
+	copyBinDirectory(installBin);
+	rmSync(installDir, { recursive: true, force: true });
 }
 
 function installWindowsFromProgramFiles() {
@@ -80,7 +76,7 @@ async function installWindows() {
 		await downloadFile(WINDOWS_INSTALLER_URL, installerPath);
 	}
 
-	installWindowsFrom7zip(installerPath);
+	installWindowsFromNsis(installerPath);
 }
 
 async function installLinux() {
