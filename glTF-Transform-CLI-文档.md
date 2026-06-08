@@ -9,6 +9,7 @@ glTF Transform CLI 是一个功能强大的命令行工具，专门用于处理�
 - 几何数据压缩（Draco、Meshopt）
 - 纹理压缩和格式转换
 - 纹理图集合并与 UV 重映射
+- 3D Tiles / 瓦片 GLB 一站式优化（`tile` 命令）
 - 场景图优化和简化
 - 材质系统转换
 - 动画数据处理
@@ -106,6 +107,120 @@ gltf-transform <command> --help
 - `--texture-size <size>`: 最大纹理尺寸（像素），默认：2048
 - `--simplify <bool>`: 简化网格几何，默认：true
 - `--instance <bool>`: 使用 GPU 实例化，默认：true
+
+#### `tile` - 瓦片 GLB 一站式优化
+**功能描述：** 针对 3D Tiles / 瓦片场景的专用优化流水线，在**单次读取、单次写出**内完成 palette → atlas → 几何与纹理优化，避免多次 CLI 调用造成的重复 I/O。
+
+**适用场景：**
+- 批量处理 3D Tiles 瓦片 GLB
+- 需要 palette 分组 + baseColor/normal 图集 + join/quantize/ktx2 的固定流程
+- 希望原地替换文件或统一输出到指定目录
+
+**流水线结构：**
+
+```
+tile GLB
+  │
+  ├── [1] palette   // 颜色调色板，为 atlas 分组
+  ├── [2] atlas     // baseColor + normal 图集
+  └── [3] optimize  // 单次内存 transform，内含：
+        ├── dedup      // 合并材质 / 资源去重
+        ├── instance   // GPU 实例化
+        ├── flatten    // 展平场景图
+        ├── join       // 合并 mesh（--join-meshes --join-named）
+        ├── weld       // 焊接顶点
+        ├── prune      // 移除未引用资源
+        ├── sparse     // 稀疏数组优化
+        ├── quantize   // 未启用 --qt 时
+        └── ktx2       // 未启用 --sgk 时（UASTC + ETC1S）
+```
+
+**参数：**
+- `<input>`: 输入文件路径（.glb, .gltf）
+- `[output]`: 可选输出路径；省略时**原地替换**输入文件（先写临时文件，成功后 rename 覆盖）
+
+**输出路径选项（三选一）：**
+- 省略 `[output]`：原地替换 `<input>`
+- 指定 `[output]`：写入目标路径
+- `--output-dir <dir>`：写入 `<dir>/<input-basename>`（不可与 `[output]` 同时使用）
+
+**调色板选项：**
+- `--palette <bool>`: 是否创建调色板纹理并合并材质，默认：true
+- `--palette-min <min>`: 生成调色板所需的最小块数，默认：5
+- `--palette-block-size <px>`: 调色板块大小（像素），默认：4
+
+**图集选项：**
+- `--atlas-types <types>`: 合并的纹理槽位，逗号分隔，默认：`baseColor,normal`
+- `--atlas-max-size <size>`: 单页图集最大尺寸（像素），默认：4096
+- `--atlas-padding <px>`: 精灵周围留白（像素），默认：2
+- `--atlas-rotate <bool>`: 是否允许旋转打包，默认：false
+- `--atlas-pow2 <bool>`: 图集尺寸按 2 的幂调整，默认：true
+- `--atlas-shrink <bool>`: 收缩画布到最小使用区域，默认：true
+- `--atlas-remap <mode>`: UV 重映射方式（`texture_transform`|`geometry`），默认：`texture_transform`
+- `--atlas-format <fmt>`: 图集输出格式（`png`|`webp`|`avif`），默认：`png`
+
+**几何优化选项：**
+- `--instance <bool>`: GPU 实例化，默认：true
+- `--instance-min <min>`: 触发实例化的最小实例数，默认：2
+- `--flatten <bool>`: 展平场景图，默认：true
+- `--join <bool>`: 合并 mesh 减少 draw call，默认：true
+- `--join-meshes <bool>`: 合并不同 mesh 与节点，默认：true
+- `--join-named <bool>`: 合并命名的 mesh 与节点，默认：true
+- `--weld <bool>`: 焊接等效顶点，默认：true
+- `--prune <bool>`: 移除未引用属性，默认：true
+- `--prune-attributes <bool>`: 裁剪未使用顶点属性，默认：true
+- `--prune-solid-textures <bool>`: 将纯色纹理转为材质因子，默认：true
+- `--sparse <bool>`: 稀疏数组优化，默认：true
+
+**纹理与量化选项：**
+- `--qt`: 跳过 quantize（输入已量化时使用）
+- `--sgk`: 跳过 KTX2 压缩（输入已使用 Basis/KTX2 时使用）
+- `--texture-size <size>`: KTX2 纹理最大尺寸（像素），默认：2048
+
+**行为说明：**
+- 整条流水线在内存中串联执行，GLB 仅读取一次、写出一次
+- KTX2 步骤（`toktx`）会对每张纹理使用临时文件调用 `ktx` CLI，但不重复读写 GLB
+- 原地替换通过系统临时目录写入中间文件，成功后覆盖原文件，降低写入失败时损坏原文件的风险
+- 不包含 `simplify`、`resample`、`draco`、`meshopt`；若需要这些步骤请使用 `optimize` 或单独命令
+
+**依赖：** Sharp（图集合成）、KTX-Software（`ktx` CLI，仅未指定 `--sgk` 时）
+
+**示例：**
+
+```bash
+# 原地替换（推荐批量瓦片处理）
+gltf-transform tile tile.glb
+
+# 输出到新文件
+gltf-transform tile input.glb output.glb
+
+# 输出到目录（保留原文件名）
+gltf-transform tile input.glb --output-dir ./optimized
+
+# 输入已量化且已有 KTX2，跳过对应步骤
+gltf-transform tile input.glb output.glb --qt --sgk
+
+# 自定义图集参数
+gltf-transform tile input.glb output.glb \
+  --atlas-types baseColor,normal \
+  --atlas-max-size 2048 \
+  --atlas-format webp \
+  --atlas-remap texture_transform
+```
+
+**脚本 API：**
+
+```typescript
+import { NodeIO } from '@gltf-transform/core';
+import { runTile } from '@gltf-transform/cli';
+
+const io = new NodeIO();
+await runTile(io, logger, 'input.glb', 'output.glb', undefined, {
+  qt: false,
+  sgk: false,
+  atlasMaxSize: 4096,
+});
+```
 
 #### `merge` - 合并模型
 **功能描述：** 将两个或多个模型合并为一个，每个模型在单独的场景中。
@@ -552,6 +667,44 @@ gltf-transform inspect output.atlas.geometry.glb --format md
 
 ## 常见使用场景与示例代码
 
+### 瓦片 GLB 优化流程（`tile`）
+
+适用于 3D Tiles 瓦片资产，一次命令完成 palette、图集、join、quantize、KTX2，避免多次读写：
+
+```bash
+# 1. 检查瓦片内容
+gltf-transform inspect tile.glb
+
+# 2. 一站式优化（原地替换）
+gltf-transform tile tile.glb
+
+# 3. 批量输出到目录
+gltf-transform tile ./tiles/building_01.glb --output-dir ./tiles/optimized
+gltf-transform tile ./tiles/building_02.glb --output-dir ./tiles/optimized
+
+# 4. 已量化 / 已有 KTX2 的瓦片，跳过对应步骤
+gltf-transform tile tile.glb --qt --sgk
+
+# 5. 优化后验证
+gltf-transform validate tile.glb
+gltf-transform inspect tile.glb --format md
+```
+
+与分步执行的对比：
+
+```bash
+# ❌ 多次读写，I/O 开销大
+gltf-transform palette  tile.glb step1.glb
+gltf-transform atlas    step1.glb step2.glb --types baseColor,normal
+gltf-transform dedup    step2.glb step3.glb
+gltf-transform join     step3.glb step4.glb
+gltf-transform quantize step4.glb step5.glb
+gltf-transform toktx    step5.glb tile.glb
+
+# ✅ 单次读写
+gltf-transform tile tile.glb
+```
+
 ### 基本优化流程
 
 ```bash
@@ -689,6 +842,7 @@ gltf-transform inspect input.glb --format csv
 - **几何压缩**: Draco 用于高质量压缩，Meshopt 用于快速解码
 - **纹理压缩**: WebP 用于网络传输，KTX2 用于 GPU 性能
 - **纹理图集**: 材质多、纹理小时用 `atlas` 合并，减少纹理数量；引擎支持 `KHR_texture_transform` 时优先 `--remap texture_transform`
+- **瓦片流水线**: 3D Tiles 瓦片 GLB 优先使用 `tile` 命令，固定 palette → atlas → join → quantize → ktx2 顺序，单次 I/O；已预处理过的瓦片用 `--qt` / `--sgk` 跳过对应步骤
 - **量化**: 在压缩前应用量化以获得最佳效果
 
 ### 兼容性考虑
