@@ -56,6 +56,24 @@ function copyWorkspacePackage(name) {
 	cpSync(join(src, 'dist'), join(dest, 'dist'), { recursive: true });
 }
 
+/** gl-matrix subpath imports fail under Node ESM without exports (mat4 and cjs/mat4.js). */
+function patchGlMatrixExports(stagingRoot) {
+	const pkgPath = join(stagingRoot, 'node_modules/gl-matrix/package.json');
+	if (!existsSync(pkgPath)) return;
+
+	const pkg = JSON.parse(readFileSync(pkgPath, 'utf8'));
+	const subpaths = ['mat2', 'mat2d', 'mat3', 'mat4', 'quat', 'quat2', 'vec2', 'vec3', 'vec4'];
+	const exports = Object.fromEntries(
+		subpaths.flatMap((name) => [
+			[`./${name}`, { import: `./esm/${name}.js`, require: `./cjs/${name}.js` }],
+			[`./esm/${name}.js`, `./esm/${name}.js`],
+			[`./cjs/${name}.js`, `./cjs/${name}.js`],
+		]),
+	);
+	pkg.exports = exports;
+	writeFileSync(pkgPath, `${JSON.stringify(pkg, null, 2)}\n`);
+}
+
 function createStagingPackageJson() {
 	const cliPkg = JSON.parse(readFileSync(join(pkgRoot, 'package.json'), 'utf8'));
 	const dependencies = { ...cliPkg.dependencies };
@@ -108,6 +126,8 @@ execFileSync('npm', ['install', '--omit=dev', '--install-links=false', '--no-aud
 	stdio: 'inherit',
 	shell: true,
 });
+
+patchGlMatrixExports(stagingDir);
 
 for (const name of workspacePackages) {
 	const dest = join(stagingDir, 'node_modules/@gltf-transform', name);

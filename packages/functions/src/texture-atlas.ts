@@ -66,8 +66,12 @@ function squarePageSize(usedW: number, usedH: number, padding: number): { width:
 	const side = Math.max(usedW + padding, usedH + padding, 1);
 	return { width: side, height: side };
 }
-function pack(sprites: Sprite[], maxSize: number, padding: number): { placements: Placement[]; pages: { width: number; height: number }[] } {
-	const placements: Placement[] = new Array(sprites.length);
+function pack(
+	sprites: Sprite[],
+	maxSize: number,
+	padding: number,
+): { placements: (Placement | null)[]; pages: { width: number; height: number }[] } {
+	const placements: (Placement | null)[] = new Array(sprites.length);
 	const pages: { width: number; height: number }[] = [];
 	const contentMax = maxSize - padding * 2;
 
@@ -113,7 +117,8 @@ function pack(sprites: Sprite[], maxSize: number, padding: number): { placements
 		const w = s.size[0];
 		const h = s.size[1];
 		if (w > contentMax || h > contentMax) {
-			throw new Error(`${NAME}: sprite exceeds maxSize (${w}x${h} > ${maxSize}).`);
+			placements[idx] = null;
+			continue;
 		}
 
 		const rowLimit = Math.min(targetSide + padding, maxSize);
@@ -131,7 +136,8 @@ function pack(sprites: Sprite[], maxSize: number, padding: number): { placements
 			flushPage();
 		}
 		if (y + h + padding > maxSize) {
-			throw new Error(`${NAME}: sprite exceeds maxSize (${w}x${h} > ${maxSize}).`);
+			placements[idx] = null;
+			continue;
 		}
 
 		placements[idx] = { page, x, y, w, h };
@@ -226,6 +232,7 @@ export function textureAtlas(_options: TextureAtlasOptions): Transform {
 		const useTextureTransform = options.remap === 'texture_transform';
 		const transformExt = useTextureTransform ? document.createExtension(KHRTextureTransform).setRequired(true) : null;
 		for (const type of options.types) {
+			const contentMax = options.maxSize - options.padding * 2;
 			const sprites: Sprite[] = [];
 			for (const material of document.getRoot().listMaterials()) {
 				const { texture } = getSlot(material, type);
@@ -236,22 +243,33 @@ export function textureAtlas(_options: TextureAtlasOptions): Transform {
 				const size = ImageUtils.getSize(image, mimeType);
 				if (!size) continue;
 				let dstSize: vec2 = [...size] as vec2;
-				if (dstSize[0] > options.maxSize || dstSize[1] > options.maxSize) {
-					dstSize = fitWithin(dstSize, [options.maxSize - options.padding * 2, options.maxSize - options.padding * 2]);
+				if (dstSize[0] > contentMax || dstSize[1] > contentMax) {
+					if (!encoder) {
+						logger.warn(
+							`${NAME}(${type}): skipping ${size[0]}x${size[1]} texture on "${material.getName() || 'material'}" (exceeds maxSize ${options.maxSize}).`,
+						);
+						continue;
+					}
+					dstSize = fitWithin(dstSize, [contentMax, contentMax]);
 				}
 				let dstImage = image;
 				if (dstSize[0] !== size[0] || dstSize[1] !== size[1]) {
-					if (!encoder) {
-						logger.warn(`${NAME}: resizing requires encoder.`);
-					} else {
-						dstImage = (await encoder(image).resize(dstSize[0], dstSize[1], { fit: 'fill' }).toBuffer()) as unknown as Uint8Array;
-					}
+					dstImage = (await encoder(image).resize(dstSize[0], dstSize[1], { fit: 'fill' }).toBuffer()) as unknown as Uint8Array;
 				}
 				dstImage = await encodeToFormat(encoder, dstImage, mimeType, options.format.mimeType);
 				sprites.push({ material, texture, size: dstSize, image: dstImage });
 			}
 			if (sprites.length === 0) continue;
 			const { placements, pages } = pack(sprites, options.maxSize, options.padding);
+			const merged = placements.filter((pl) => pl !== null).length;
+			const skipped = sprites.length - merged;
+			if (merged === 0) {
+				logger.warn(`${NAME}(${type}): no textures could be merged into atlas; keeping originals.`);
+				continue;
+			}
+			if (skipped > 0) {
+				logger.warn(`${NAME}(${type}): merged ${merged}/${sprites.length}, skipped ${skipped}.`);
+			}
 			const atlasTextures: Texture[] = [];
 			for (let p = 0; p < pages.length; p++) {
 				let width = pages[p].width;
@@ -278,7 +296,7 @@ export function textureAtlas(_options: TextureAtlasOptions): Transform {
 				const composites: sharp.OverlayOptions[] = [];
 				for (let i = 0; i < placements.length; i++) {
 					const pl = placements[i];
-					if (pl.page !== p) continue;
+					if (!pl || pl.page !== p) continue;
 					composites.push({
 						input: sprites[i].image as unknown as Buffer,
 						left: pl.x,
@@ -291,6 +309,7 @@ export function textureAtlas(_options: TextureAtlasOptions): Transform {
 			}
 			for (let i = 0; i < placements.length; i++) {
 				const pl = placements[i];
+				if (!pl) continue;
 				const atlas = atlasTextures[pl.page];
 				const { set, info } = getSlot(sprites[i].material, type);
 				set(atlas);
@@ -371,9 +390,11 @@ export function textureAtlas(_options: TextureAtlasOptions): Transform {
 					}
 				}
 			}
-			logger.debug(`${NAME}(${type}): pages=${pages.length}, sprites=${sprites.length}`);
-			for (const s of sprites) {
-				if (!isUsed(s.texture)) s.texture.dispose();
+			logger.debug(`${NAME}(${type}): pages=${pages.length}, merged=${merged}/${sprites.length}`);
+			for (let i = 0; i < sprites.length; i++) {
+				if (!placements[i]) continue;
+				const texture = sprites[i].texture;
+				if (!isUsed(texture)) texture.dispose();
 			}
 		}
 		logger.debug(`${NAME}: Complete.`);

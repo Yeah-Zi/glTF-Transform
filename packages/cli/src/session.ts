@@ -11,6 +11,7 @@ import { dim, formatBytes, formatLong } from './utils/format.js';
 export class Session {
 	private _outputFormat: Format;
 	private _display = false;
+	private _continueOnError = false;
 
 	constructor(
 		private _io: NodeIO,
@@ -29,6 +30,22 @@ export class Session {
 	public setDisplay(display: boolean): this {
 		this._display = display;
 		return this;
+	}
+
+	/** When true, failed transforms are logged and skipped instead of aborting the session. */
+	public setContinueOnError(continueOnError: boolean): this {
+		this._continueOnError = continueOnError;
+		return this;
+	}
+
+	private async _runTransform(document: Document, transform: Transform): Promise<void> {
+		try {
+			await document.transform(transform);
+		} catch (error) {
+			if (!this._continueOnError) throw error;
+			const message = error instanceof Error ? error.message : String(error);
+			this._logger.warn(`[${transform.name}]: Skipped — ${message}`);
+		}
 	}
 
 	public async transform(...transforms: Transform[]): Promise<void> {
@@ -56,7 +73,15 @@ export class Session {
 					title: transform.name,
 					task: async (_ctx, task) => {
 						let time = performance.now();
-						await document.transform(transform);
+						try {
+							await document.transform(transform);
+						} catch (error) {
+							if (!this._continueOnError) throw error;
+							const message = error instanceof Error ? error.message : String(error);
+							logger.warn(`[${transform.name}]: Skipped — ${message}`);
+							task.title = `${transform.name} (skipped)`;
+							return;
+						}
 						time = Math.round(performance.now() - time);
 						task.title = task.title.padEnd(20) + dim(` ${formatLong(time)}ms`);
 					},
@@ -76,6 +101,10 @@ export class Session {
 			console.log('');
 
 			logger.setVerbosity(prevLevel);
+		} else if (this._continueOnError) {
+			for (const transform of transforms) {
+				await this._runTransform(document, transform);
+			}
 		} else {
 			await document.transform(...transforms);
 		}
