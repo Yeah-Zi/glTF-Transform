@@ -255,14 +255,13 @@ certain aspects of data layout may change slightly with this process:
 
 // TILE
 program
-	.command('tile', 'Optimize tile GLB: palette → atlas → dedup/join/quantize/ktx2')
+	.command('tile', 'Optimize tile GLB: palette → dedup/join/quantize/ktx2')
 	.help(
 		`
 Runs a tile-specific optimization pipeline in a single read/write pass:
 
-  1. palette   — merge solid-color materials for atlas grouping
-  2. atlas     — pack baseColor + normal textures into atlases
-  3. optimize  — dedup, instance, flatten, join, weld, prune, sparse,
+  1. palette   — merge solid-color materials
+  2. optimize  — dedup, instance, flatten, join, weld, prune, sparse,
                  quantize (unless --qt), and KTX2 (unless --sgk)
 
 Examples:
@@ -288,38 +287,6 @@ Examples:
 	.option('--palette-block-size <px>', 'Palette block size in pixels.', {
 		validator: Validator.NUMBER,
 		default: PALETTE_DEFAULTS.blockSize,
-	})
-	.option('--atlas-types <types>', 'Texture slots to atlas, comma-separated.', {
-		validator: Validator.STRING,
-		default: 'baseColor,normal',
-	})
-	.option('--atlas-max-size <size>', 'Atlas page max dimension (px).', {
-		validator: Validator.NUMBER,
-		default: 4096,
-	})
-	.option('--atlas-padding <px>', 'Padding around each atlas sprite (px).', {
-		validator: Validator.NUMBER,
-		default: 2,
-	})
-	.option('--atlas-rotate <bool>', 'Allow rotation during atlas packing.', {
-		validator: Validator.BOOLEAN,
-		default: false,
-	})
-	.option('--atlas-pow2 <bool>', 'Round atlas dimensions up to power of two.', {
-		validator: Validator.BOOLEAN,
-		default: true,
-	})
-	.option('--atlas-shrink <bool>', 'Shrink atlas canvas to minimal used area.', {
-		validator: Validator.BOOLEAN,
-		default: true,
-	})
-	.option('--atlas-remap <mode>', 'UV remap strategy for atlases.', {
-		validator: ['texture_transform', 'geometry'],
-		default: 'texture_transform',
-	})
-	.option('--atlas-format <fmt>', 'Atlas output image format.', {
-		validator: ['png', 'webp', 'avif'],
-		default: 'png',
 	})
 	.option('--instance <bool>', 'Use GPU instancing with shared mesh references.', {
 		validator: Validator.BOOLEAN,
@@ -367,22 +334,10 @@ Examples:
 		default: 2048,
 	})
 	.action(async ({ args, options, logger }) => {
-		const atlasTypes = String(options.atlasTypes)
-			.split(',')
-			.map((s) => s.trim())
-			.filter(Boolean);
 		return runTile(io, logger, args.input as string, args.output as string | undefined, options.outputDir as string | undefined, {
 			palette: Boolean(options.palette),
 			paletteMin: Number(options.paletteMin),
 			paletteBlockSize: Number(options.paletteBlockSize),
-			atlasTypes: atlasTypes as ('baseColor' | 'normal' | 'metallicRoughness' | 'occlusion' | 'emissive')[],
-			atlasMaxSize: Number(options.atlasMaxSize),
-			atlasPadding: Number(options.atlasPadding),
-			atlasRotate: Boolean(options.atlasRotate),
-			atlasPow2: Boolean(options.atlasPow2),
-			atlasShrink: Boolean(options.atlasShrink),
-			atlasRemap: options.atlasRemap as 'texture_transform' | 'geometry',
-			atlasFormat: options.atlasFormat as 'png' | 'webp' | 'avif',
 			instance: Boolean(options.instance),
 			instanceMin: Number(options.instanceMin),
 			flatten: Boolean(options.flatten),

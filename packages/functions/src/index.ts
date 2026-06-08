@@ -59,3 +59,4 @@ export {
 export * from './vertex-color-space.js';
 export * from './weld.js';
 export * from './bake-factors.js';
+export * from './bake-texture-transform.js';

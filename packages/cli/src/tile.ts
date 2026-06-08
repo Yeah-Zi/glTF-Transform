@@ -11,11 +11,9 @@ import {
 	join,
 	PALETTE_DEFAULTS,
 	palette,
-	PRUNE_DEFAULTS,
 	prune,
 	quantize,
 	sparse,
-	textureAtlas,
 	weld,
 } from '@gltf-transform/functions';
 import micromatch from 'micromatch';
@@ -25,21 +23,11 @@ import type { Logger } from './program.js';
 import { Session } from './session.js';
 import { MICROMATCH_OPTIONS } from './utils/match.js';
 
-type AtlasType = 'baseColor' | 'normal' | 'metallicRoughness' | 'occlusion' | 'emissive';
-
 /** Options for the tile optimization pipeline. */
 export interface TileOptions {
 	palette?: boolean;
 	paletteMin?: number;
 	paletteBlockSize?: number;
-	atlasTypes?: AtlasType[];
-	atlasMaxSize?: number;
-	atlasPadding?: number;
-	atlasRotate?: boolean;
-	atlasPow2?: boolean;
-	atlasShrink?: boolean;
-	atlasRemap?: 'texture_transform' | 'geometry';
-	atlasFormat?: 'png' | 'webp' | 'avif';
 	instance?: boolean;
 	instanceMin?: number;
 	flatten?: boolean;
@@ -58,12 +46,6 @@ export interface TileOptions {
 	textureSize?: number;
 	limitInputPixels?: boolean;
 }
-
-const ATLAS_MIME: Record<NonNullable<TileOptions['atlasFormat']>, string> = {
-	png: 'image/png',
-	webp: 'image/webp',
-	avif: 'image/avif',
-};
 
 /** Resolves the output path for a tile run. */
 export function resolveTileOutput(
@@ -97,22 +79,6 @@ export async function buildTileTransforms(
 				blockSize: options.paletteBlockSize,
 				cleanup: false,
 				keepAttributes: !options.prune || !options.pruneAttributes,
-			}),
-		);
-	}
-
-	if (options.atlasTypes.length > 0) {
-		transforms.push(
-			textureAtlas({
-				encoder,
-				types: options.atlasTypes,
-				maxSize: options.atlasMaxSize,
-				padding: options.atlasPadding,
-				rotate: options.atlasRotate,
-				pow2: options.atlasPow2,
-				shrink: options.atlasShrink,
-				remap: options.atlasRemap,
-				format: { mimeType: ATLAS_MIME[options.atlasFormat] },
 			}),
 		);
 	}
@@ -193,14 +159,6 @@ export async function runTile(
 		palette: true,
 		paletteMin: PALETTE_DEFAULTS.min,
 		paletteBlockSize: PALETTE_DEFAULTS.blockSize,
-		atlasTypes: ['baseColor', 'normal'],
-		atlasMaxSize: 4096,
-		atlasPadding: 2,
-		atlasRotate: false,
-		atlasPow2: true,
-		atlasShrink: true,
-		atlasRemap: 'texture_transform',
-		atlasFormat: 'png',
 		instance: true,
 		instanceMin: INSTANCE_DEFAULTS.min,
 		flatten: true,

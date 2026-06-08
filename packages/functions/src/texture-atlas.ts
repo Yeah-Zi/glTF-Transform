@@ -8,6 +8,7 @@ import {
 } from '@gltf-transform/core';
 import { KHRTextureTransform } from '@gltf-transform/extensions';
 import type sharp from 'sharp';
+import { bakeTextureTransforms } from './bake-texture-transform.js';
 import { assignDefaults, createTransform, fitPowerOfTwo, fitWithin, isUsed } from './utils.js';
 const NAME = 'textureAtlas';
 type AtlasType = 'baseColor' | 'normal' | 'metallicRoughness' | 'occlusion' | 'emissive';
@@ -230,6 +231,9 @@ export function textureAtlas(_options: TextureAtlasOptions): Transform {
 		const logger = document.getLogger();
 		const encoder = options.encoder as typeof sharp | null;
 		const useTextureTransform = options.remap === 'texture_transform';
+		if (!useTextureTransform) {
+			bakeTextureTransforms(document);
+		}
 		const transformExt = useTextureTransform ? document.createExtension(KHRTextureTransform).setRequired(true) : null;
 		for (const type of options.types) {
 			const contentMax = options.maxSize - options.padding * 2;
