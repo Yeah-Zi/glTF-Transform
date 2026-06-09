@@ -6,9 +6,9 @@ import {
 	type Texture,
 	ImageUtils,
 } from '@gltf-transform/core';
-import { KHRTextureTransform } from '@gltf-transform/extensions';
+import { KHRTextureTransform, type Transform as TextureTransform } from '@gltf-transform/extensions';
 import type sharp from 'sharp';
-import { bakeTextureTransforms } from './bake-texture-transform.js';
+import { applyTextureTransformUV, bakeTextureTransforms } from './bake-texture-transform.js';
 import { assignDefaults, createTransform, fitPowerOfTwo, fitWithin, isUsed } from './utils.js';
 const NAME = 'textureAtlas';
 type AtlasType = 'baseColor' | 'normal' | 'metallicRoughness' | 'occlusion' | 'emissive';
@@ -167,6 +167,33 @@ function getSlot(material: Material, type: AtlasType): { texture: Texture | null
 			return { texture: material.getEmissiveTexture(), set: (t) => material.setEmissiveTexture(t), info: material.getEmissiveTextureInfo() };
 	}
 }
+/** True when geometry UVs (after KHR_texture_transform bake) extend outside [0, 1]. */
+function materialUsesTiledUVs(document: Document, material: Material, type: AtlasType): boolean {
+	const { info } = getSlot(material, type);
+	if (!info) return false;
+
+	const texCoordIndex = info.getTexCoord();
+	const srcSemantic = `TEXCOORD_${texCoordIndex}`;
+	const transform = info.getExtension<TextureTransform>(KHRTextureTransform.EXTENSION_NAME);
+
+	for (const mesh of document.getRoot().listMeshes()) {
+		for (const prim of mesh.listPrimitives()) {
+			if (prim.getMaterial() !== material) continue;
+			const srcAttr = prim.getAttribute(srcSemantic) || prim.getAttribute('TEXCOORD_0');
+			if (!srcAttr) continue;
+			const count = srcAttr.getCount();
+			const el: number[] = [];
+			for (let j = 0; j < count; j++) {
+				const uv = srcAttr.getElement(j, el) as vec2;
+				const effective = transform ? applyTextureTransformUV(uv, transform) : uv;
+				if (effective[0] < 0 || effective[0] > 1 || effective[1] < 0 || effective[1] > 1) {
+					return true;
+				}
+			}
+		}
+	}
+	return false;
+}
 async function encodeToFormat(encoder: typeof sharp | null, image: Uint8Array, srcMime: string, dstMime: string): Promise<Uint8Array> {
 	if (!encoder || srcMime === dstMime) return image;
 	const fmt = dstMime.split('/').pop();
@@ -241,6 +268,12 @@ export function textureAtlas(_options: TextureAtlasOptions): Transform {
 			for (const material of document.getRoot().listMaterials()) {
 				const { texture } = getSlot(material, type);
 				if (!texture) continue;
+				if (materialUsesTiledUVs(document, material, type)) {
+					logger.warn(
+						`${NAME}(${type}): skipping "${material.getName() || 'material'}" (tiled UVs outside [0,1] after bake).`,
+					);
+					continue;
+				}
 				const image = texture.getImage();
 				const mimeType = texture.getMimeType();
 				if (!image || !mimeType) continue;
