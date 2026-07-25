@@ -161,12 +161,10 @@ export function buildTileTransforms(options: Required<TileOptions>, encoder: typ
 			toktx({
 				encoder,
 				resize: [options.textureSize, options.textureSize],
-				mode: Mode.UASTC,
+				mode: Mode.ETC1S,
 				pattern: /^baseColor-atlas-\d+$/,
 				slots: /baseColorTexture/,
-				level: 4,
-				rdo: false,
-				mipmaps: false,
+				compression: 5,
 				limitInputPixels: options.limitInputPixels,
 			}),
 		);
@@ -210,11 +208,11 @@ export async function runTile(
 	const options: Required<TileOptions> = {
 		palette: true,
 		paletteMin: PALETTE_DEFAULTS.min,
-		paletteBlockSize: PALETTE_DEFAULTS.blockSize,
+		paletteBlockSize: 16,
 		atlas: true,
 		atlasTypes: ['baseColor', 'normal'],
 		atlasMaxSize: 4096,
-		atlasPadding: 2,
+		atlasPadding: 4,
 		atlasRotate: false,
 		atlasPow2: true,
 		atlasShrink: true,

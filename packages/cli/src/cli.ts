@@ -294,7 +294,7 @@ Examples:
 	)
 	.option('--palette-block-size <px>', 'Palette block size in pixels.', {
 		validator: Validator.NUMBER,
-		default: PALETTE_DEFAULTS.blockSize,
+		default: 16,
 	})
 	.option('--atlas <bool>', 'Run texture atlas step.', { validator: Validator.BOOLEAN, default: true })
 	.option('--atlas-types <types>', 'Texture slots to atlas, comma-separated.', {
@@ -307,7 +307,7 @@ Examples:
 	})
 	.option('--atlas-padding <px>', 'Padding around each atlas sprite (px).', {
 		validator: Validator.NUMBER,
-		default: 2,
+		default: 4,
 	})
 	.option('--atlas-rotate <bool>', 'Allow rotation during atlas packing.', {
 		validator: Validator.BOOLEAN,
