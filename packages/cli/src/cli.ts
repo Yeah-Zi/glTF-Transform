@@ -849,7 +849,7 @@ flag, or use the scripting API to manually input JSONLD fields.
 
 To remove XMP metadata and the KHR_xmp_json_ld extension, use the --reset flag.
 
-${underline('Documentation')}
+${styleText('underline', 'Documentation')}
 - https://gltf-transform.dev/classes/extensions.xmp.html
 `,
 	)
@@ -988,10 +988,10 @@ only geometry data — animation and textures are not compressed.
 Compresses
 - geometry (only triangle meshes)
 
-${underline('Documentation')}
+${styleText('underline', 'Documentation')}
 - https://gltf-transform.dev/classes/extensions.dracomeshcompression.html
 
-${underline('References')}
+${styleText('underline', 'References')}
 - draco: https://github.com/google/draco
 - KHR_draco_mesh_compression: https://github.com/KhronosGroup/gltf/blob/main/extensions/2.0/Khronos/KHR_draco_mesh_compression/
 `.trim(),
@@ -1052,10 +1052,10 @@ Compresses
 - morph targets
 - animation tracks
 
-${underline('Documentation')}
+${styleText('underline', 'Documentation')}
 - https://gltf-transform.dev/classes/extensions.meshoptcompression.html
 
-${underline('References')}
+${styleText('underline', 'References')}
 - meshoptimizer: https://github.com/zeux/meshoptimizer
 - EXT_meshopt_compression: https://github.com/KhronosGroup/gltf/blob/main/extensions/2.0/Vendor/EXT_meshopt_compression/
 `.trim(),
@@ -1947,10 +1947,10 @@ more attention to compression settings to get similar visual results.
 
 {DETAILS}
 
-${underline('Documentation')}
+${styleText('underline', 'Documentation')}
 https://gltf-transform.dev/extensions.html#khr_texture_basisu
 
-${underline('Dependencies')}
+${styleText('underline', 'Dependencies')}
 KTX-Software (https://github.com/KhronosGroup/KTX-Software/)
 `;
 
