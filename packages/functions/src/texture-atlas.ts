@@ -431,25 +431,29 @@ export function textureAtlas(_options: TextureAtlasOptions): Transform {
 							for (let j = 0; j < count; j++) {
 								let u = srcArray[j * 2];
 								let v = srcArray[j * 2 + 1];
-								if (wrapS === 10497) {
-									u = u - Math.floor(u);
-								} else if (wrapS === 33071) {
-									u = Math.max(0, Math.min(1, u));
-								} else if (wrapS === 33648) {
-									const fu = Math.abs(u);
-									const ru = fu - Math.floor(fu);
-									const mu = Math.floor(fu) % 2 === 0 ? ru : 1 - ru;
-									u = mu;
+								if (u < 0 || u > 1) {
+									if (wrapS === 10497) {
+										u = u - Math.floor(u);
+									} else if (wrapS === 33071) {
+										u = Math.max(0, Math.min(1, u));
+									} else if (wrapS === 33648) {
+										const fu = Math.abs(u);
+										const ru = fu - Math.floor(fu);
+										const mu = Math.floor(fu) % 2 === 0 ? ru : 1 - ru;
+										u = mu;
+									}
 								}
-								if (wrapT === 10497) {
-									v = v - Math.floor(v);
-								} else if (wrapT === 33071) {
-									v = Math.max(0, Math.min(1, v));
-								} else if (wrapT === 33648) {
-									const fv = Math.abs(v);
-									const rv = fv - Math.floor(fv);
-									const mv = Math.floor(fv) % 2 === 0 ? rv : 1 - rv;
-									v = mv;
+								if (v < 0 || v > 1) {
+									if (wrapT === 10497) {
+										v = v - Math.floor(v);
+									} else if (wrapT === 33071) {
+										v = Math.max(0, Math.min(1, v));
+									} else if (wrapT === 33648) {
+										const fv = Math.abs(v);
+										const rv = fv - Math.floor(fv);
+										const mv = Math.floor(fv) % 2 === 0 ? rv : 1 - rv;
+										v = mv;
+									}
 								}
 								const tu = u * scale[0] + offset[0];
 								const tv = v * scale[1] + offset[1];

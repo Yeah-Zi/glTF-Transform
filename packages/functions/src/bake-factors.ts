@@ -38,6 +38,7 @@ export function bakeFactors(_options: BakeFactorsOptions = BAKE_DEFAULTS): Trans
 				const hasTexCoords = materialHasTexCoords(doc, material, info?.getTexCoord() ?? 0);
 				if ((tex || hasFactor) && (!options.requireTextureCoordinates || hasTexCoords)) {
 					if (tex) {
+						const infoSnapshot = info?.clone();
 						const dst = doc.createTexture((tex.getName() || 'BaseColor') + options.nameSuffix).setURI('BaseColor_baked.png');
 						await rewriteTexture(tex, dst, (pixels, i, j) => {
 							const r = pixels.get(i, j, 0) / 255;
@@ -58,7 +59,10 @@ export function bakeFactors(_options: BakeFactorsOptions = BAKE_DEFAULTS): Trans
 							pixels.set(i, j, 3, oa);
 						});
 						material.setBaseColorTexture(dst);
-						if (info) material.getBaseColorTextureInfo()!.copy(info);
+						if (infoSnapshot) {
+							material.getBaseColorTextureInfo()!.copy(infoSnapshot);
+							infoSnapshot.dispose();
+						}
 						if (!options.keepFactors) material.setBaseColorFactor([1, 1, 1, 1]);
 					} else {
 						const size = options.resolution === 'source' || options.resolution === 'max' ? { width: 1, height: 1 } : options.resolution;
@@ -92,6 +96,7 @@ export function bakeFactors(_options: BakeFactorsOptions = BAKE_DEFAULTS): Trans
 				const hasTexCoords = materialHasTexCoords(doc, material, info?.getTexCoord() ?? 0);
 				if (hasFactor && (!options.requireTextureCoordinates || hasTexCoords)) {
 					if (tex) {
+						const infoSnapshot = info?.clone();
 						const dst = doc.createTexture((tex.getName() || 'Emissive') + options.nameSuffix).setURI('Emissive_baked.png');
 						await rewriteTexture(tex, dst, (pixels, i, j) => {
 							const r = pixels.get(i, j, 0) / 255;
@@ -111,7 +116,10 @@ export function bakeFactors(_options: BakeFactorsOptions = BAKE_DEFAULTS): Trans
 							pixels.set(i, j, 3, Math.max(0, Math.min(255, Math.round(a * 255))));
 						});
 						material.setEmissiveTexture(dst);
-						if (info) material.getEmissiveTextureInfo()!.copy(info);
+						if (infoSnapshot) {
+							material.getEmissiveTextureInfo()!.copy(infoSnapshot);
+							infoSnapshot.dispose();
+						}
 						if (!options.keepFactors) material.setEmissiveFactor([1, 1, 1]);
 					} else {
 						const size = options.resolution === 'source' || options.resolution === 'max' ? { width: 1, height: 1 } : options.resolution;
@@ -146,6 +154,7 @@ export function bakeFactors(_options: BakeFactorsOptions = BAKE_DEFAULTS): Trans
 				const hasTexCoords = materialHasTexCoords(doc, material, info?.getTexCoord() ?? 0);
 				if ((tex || hasFactor) && (!options.requireTextureCoordinates || hasTexCoords)) {
 					if (tex) {
+						const infoSnapshot = info?.clone();
 						const dst = doc.createTexture((tex.getName() || 'MetallicRoughness') + options.nameSuffix).setURI('MetallicRoughness_baked.png');
 						await rewriteTexture(tex, dst, (pixels, i, j) => {
 							const g = pixels.get(i, j, 1);
@@ -156,7 +165,10 @@ export function bakeFactors(_options: BakeFactorsOptions = BAKE_DEFAULTS): Trans
 							pixels.set(i, j, 2, nb);
 						});
 						material.setMetallicRoughnessTexture(dst);
-						if (info) material.getMetallicRoughnessTextureInfo()!.copy(info);
+						if (infoSnapshot) {
+							material.getMetallicRoughnessTextureInfo()!.copy(infoSnapshot);
+							infoSnapshot.dispose();
+						}
 						if (!options.keepFactors) {
 							material.setMetallicFactor(1);
 							material.setRoughnessFactor(1);

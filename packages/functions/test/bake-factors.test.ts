@@ -1,4 +1,5 @@
 import { ColorUtils, Document } from '@gltf-transform/core';
+import { KHRTextureTransform } from '@gltf-transform/extensions';
 import { bakeFactors } from '@gltf-transform/functions';
 import { logger } from '@gltf-transform/test-utils';
 import test from 'ava';
@@ -113,4 +114,22 @@ test('baseColor mixing', async (t) => {
 	t.is(out.get(0, 0, 2), Math.round((s[2] as number) * 255), 'B');
 	t.is(out.get(0, 0, 3), Math.round(1.0 * factor[3] * 255), 'A');
 	t.deepEqual(material.getBaseColorFactor(), [1, 1, 1, 1], 'factor reset');
+});
+
+test('preserves baseColor texture transform', async (t) => {
+	const document = new Document().setLogger(logger);
+	const image = await savePixels(ndarray(new Uint8Array([255, 255, 255, 255]), [1, 1, 4]), 'image/png');
+	const texture = document.createTexture('BC').setImage(image).setMimeType('image/png');
+	const material = document.createMaterial().setBaseColorTexture(texture).setBaseColorFactor([0.5, 1, 1, 1]);
+	const extension = document.createExtension(KHRTextureTransform);
+	const transform = extension.createTransform().setOffset([0.25, 0.5]).setScale([0.125, 0.25]);
+	material.getBaseColorTextureInfo()!.setExtension(KHRTextureTransform.EXTENSION_NAME, transform);
+
+	await document.transform(bakeFactors({ targets: ['baseColor'] }));
+
+	const dstTransform = material
+		.getBaseColorTextureInfo()!
+		.getExtension<ReturnType<KHRTextureTransform['createTransform']>>(KHRTextureTransform.EXTENSION_NAME);
+	t.deepEqual(dstTransform?.getOffset(), [0.25, 0.5]);
+	t.deepEqual(dstTransform?.getScale(), [0.125, 0.25]);
 });

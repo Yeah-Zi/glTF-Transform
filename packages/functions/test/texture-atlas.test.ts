@@ -87,6 +87,39 @@ test('geometry remap preserves UVs shared with an unprocessed slot', async (t) =
 	t.deepEqual(uv, [0.1875, 0.3125]);
 });
 
+test('geometry remap preserves repeat-wrapped UV endpoints', async (t) => {
+	const document = new Document();
+	const position = document.createAccessor().setType('VEC3').setArray(new Float32Array(6));
+	const texcoord = document
+		.createAccessor()
+		.setType('VEC2')
+		.setArray(new Float32Array([0, 0, 1, 1]));
+	const image = await savePixels(ndarray(new Uint8Array(4 * 4 * 4).fill(255), [4, 4, 4]), 'image/png');
+	const texture = document.createTexture().setImage(image).setMimeType('image/png');
+	const material = document.createMaterial().setBaseColorTexture(texture);
+	const primitive = document
+		.createPrimitive()
+		.setMaterial(material)
+		.setAttribute('POSITION', position)
+		.setAttribute('TEXCOORD_0', texcoord);
+	document.createScene().addChild(document.createNode().setMesh(document.createMesh().addPrimitive(primitive)));
+
+	await document.transform(
+		textureAtlas({
+			encoder: sharp,
+			types: ['baseColor'],
+			maxSize: 16,
+			padding: 2,
+			remap: 'geometry',
+			format: { mimeType: 'image/png' },
+		}),
+	);
+
+	const dstTexCoord = primitive.getAttribute('TEXCOORD_0')!;
+	t.deepEqual(dstTexCoord.getElement(0, []), [0.125, 0.125]);
+	t.deepEqual(dstTexCoord.getElement(1, []), [0.375, 0.375]);
+});
+
 test('unused materials are not included in atlases', async (t) => {
 	const document = new Document();
 	const image = await savePixels(ndarray(new Uint8Array(4 * 4 * 4).fill(255), [4, 4, 4]), 'image/png');
