@@ -24,6 +24,7 @@ import { max, min, scale, transformMat4 } from 'gl-matrix/vec3';
 import { compactPrimitive } from './compact-primitive.js';
 import { dedup } from './dedup.js';
 import { getPrimitiveVertexCount, VertexCountMethod } from './get-vertex-count.js';
+import { listPropertyAttributeSemantics } from './metadata-utils.js';
 import { prune } from './prune.js';
 import { sortPrimitiveWeights } from './sort-primitive-weights.js';
 import { assignDefaults, createTransform } from './utils.js';
@@ -211,10 +212,11 @@ function quantizePrimitive(
 ): void {
 	const isTarget = prim instanceof PrimitiveTarget;
 	const logger = document.getLogger();
+	const metadataSemantics = prim instanceof Primitive ? listPropertyAttributeSemantics(prim) : new Set<string>();
 
 	for (const semantic of prim.listSemantics()) {
 		// EXT_mesh_features IDs are categorical integers, not quantizable values.
-		if (semantic.startsWith('_FEATURE_ID_')) continue;
+		if (semantic.startsWith('_FEATURE_ID_') || metadataSemantics.has(semantic)) continue;
 		if (!isTarget && !options.pattern.test(semantic)) continue;
 		if (isTarget && !options.patternTargets.test(semantic)) continue;
 
@@ -340,17 +342,13 @@ function transformSkin(skin: Skin, nodeTransform: VectorTransform<vec3>): Skin {
 
 /** Applies corrective scale and offset to GPU instancing batches. */
 function transformBatch(document: Document, batch: InstancedMesh, nodeTransform: VectorTransform<vec3>): InstancedMesh {
-	if (!batch.getAttribute('TRANSLATION') && !batch.getAttribute('ROTATION') && !batch.getAttribute('SCALE')) {
-		return batch;
-	}
-
 	batch = batch.clone(); // quantize() does cleanup.
 
 	let instanceTranslation = batch.getAttribute('TRANSLATION')?.clone();
 	const instanceRotation = batch.getAttribute('ROTATION')?.clone();
 	let instanceScale = batch.getAttribute('SCALE')?.clone();
 
-	const tpl = (instanceTranslation || instanceRotation || instanceScale)!;
+	const tpl = (instanceTranslation || instanceRotation || instanceScale || batch.listAttributes()[0])!;
 
 	const T_IDENTITY = [0, 0, 0] as vec3;
 	const R_IDENTITY = [0, 0, 0, 1] as vec4;
@@ -360,11 +358,19 @@ function transformBatch(document: Document, batch: InstancedMesh, nodeTransform:
 	// See: https://github.com/donmccurdy/glTF-Transform/issues/1584
 
 	if (!instanceTranslation && nodeTransform.offset) {
-		instanceTranslation = document.createAccessor().setType('VEC3').setArray(makeArray(tpl.getCount(), T_IDENTITY));
+		instanceTranslation = document
+			.createAccessor()
+			.setType('VEC3')
+			.setArray(makeArray(tpl.getCount(), T_IDENTITY))
+			.setBuffer(tpl.getBuffer());
 	}
 
 	if (!instanceScale && nodeTransform.scale) {
-		instanceScale = document.createAccessor().setType('VEC3').setArray(makeArray(tpl.getCount(), S_IDENTITY));
+		instanceScale = document
+			.createAccessor()
+			.setType('VEC3')
+			.setArray(makeArray(tpl.getCount(), S_IDENTITY))
+			.setBuffer(tpl.getBuffer());
 	}
 
 	const t = [0, 0, 0] as vec3;

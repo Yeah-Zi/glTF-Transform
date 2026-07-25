@@ -1,5 +1,5 @@
 import { Document, PropertyType } from '@gltf-transform/core';
-import { EXTMeshFeatures } from '@gltf-transform/extensions';
+import { EXTMeshFeatures, EXTStructuralMetadata } from '@gltf-transform/extensions';
 import { dedup, dequantize, joinPrimitives, quantize, simplifyPrimitive } from '@gltf-transform/functions';
 import test from 'ava';
 
@@ -35,6 +35,19 @@ function createFeaturePrimitive(document: Document) {
 	return primitive;
 }
 
+function addPropertyAttribute(document: Document, primitive: ReturnType<Document['createPrimitive']>) {
+	const extension = document.createExtension(EXTStructuralMetadata);
+	const structuralMetadata = extension.createStructuralMetadata();
+	document.getRoot().setExtension(EXTStructuralMetadata.EXTENSION_NAME, structuralMetadata);
+	const property = extension.createPropertyAttributeProperty().setAttribute('_BUILDING_ID');
+	const propertyAttribute = extension.createPropertyAttribute().setClass('building').setProperty('id', property);
+	structuralMetadata.addPropertyAttribute(propertyAttribute);
+	primitive.setExtension(
+		EXTStructuralMetadata.EXTENSION_NAME,
+		extension.createMeshPrimitiveStructuralMetadata().addPropertyAttribute(propertyAttribute),
+	);
+}
+
 test('quantize and dequantize preserve feature ID attributes', async (t) => {
 	const document = new Document();
 	const primitive = createFeaturePrimitive(document);
@@ -55,7 +68,7 @@ test('unsafe topology changes are rejected or skipped', (t) => {
 
 	t.is(result, primitive, 'simplify skips feature primitives');
 	const error = t.throws(() => joinPrimitives([primitive, primitive.clone()]));
-	t.regex(error.message, /EXT_mesh_features/);
+	t.regex(error.message, /feature or structural metadata/);
 });
 
 test('dedup keeps meshes with distinct feature definitions', async (t) => {
@@ -68,4 +81,24 @@ test('dedup keeps meshes with distinct feature definitions', async (t) => {
 	await document.transform(dedup({ propertyTypes: [PropertyType.MESH] }));
 
 	t.is(document.getRoot().listMeshes().length, 2);
+});
+
+test('property attributes survive value and topology optimizations', async (t) => {
+	const document = new Document();
+	const primitive = createFeaturePrimitive(document).setExtension(EXTMeshFeatures.EXTENSION_NAME, null);
+	const propertyAttribute = document
+		.createAccessor()
+		.setType('SCALAR')
+		.setArray(new Uint32Array([0, 1, 1]));
+	primitive.setAttribute('_BUILDING_ID', propertyAttribute);
+	addPropertyAttribute(document, primitive);
+	document.createScene().addChild(document.createNode().setMesh(document.createMesh().addPrimitive(primitive)));
+
+	await document.transform(quantize(), dequantize());
+
+	t.true(primitive.getAttribute('_BUILDING_ID')!.getArray() instanceof Uint32Array);
+	t.deepEqual(Array.from(primitive.getAttribute('_BUILDING_ID')!.getArray()!), [0, 1, 1]);
+	t.is(simplifyPrimitive(primitive, { simplifier: {} as never }), primitive);
+	const error = t.throws(() => joinPrimitives([primitive, primitive.clone()]));
+	t.regex(error.message, /structural metadata/);
 });

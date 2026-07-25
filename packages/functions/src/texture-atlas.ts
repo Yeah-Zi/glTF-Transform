@@ -11,6 +11,7 @@ import { KHRTextureTransform, type Transform as TextureTransform } from '@gltf-t
 import type sharp from 'sharp';
 import { applyTextureTransformUV, bakeTextureTransforms } from './bake-texture-transform.js';
 import { listTextureInfoByMaterial } from './list-texture-info.js';
+import { listMetadataTexCoords } from './metadata-utils.js';
 import { assignDefaults, createTransform, fitPowerOfTwo, fitWithin, isUsed } from './utils.js';
 const NAME = 'textureAtlas';
 type AtlasType = 'baseColor' | 'normal' | 'metallicRoughness' | 'occlusion' | 'emissive';
@@ -397,9 +398,10 @@ export function textureAtlas(_options: TextureAtlasOptions): Transform {
 					info?.setExtension(KHRTextureTransform.EXTENSION_NAME, null);
 					const material = sprites[i].material;
 					const usedTexCoords = remappedTexCoords.get(material) || new Set<number>();
-					const sharedTexCoord = listTextureInfoByMaterial(material).some(
-						(otherInfo) => otherInfo !== info && otherInfo.getTexCoord() === srcTexCoordIndex,
-					);
+					const sharedTexCoord =
+						listTextureInfoByMaterial(material).some(
+							(otherInfo) => otherInfo !== info && otherInfo.getTexCoord() === srcTexCoordIndex,
+						) || isMetadataTexCoord(document, material, srcTexCoordIndex);
 					let dstTexCoordIndex = srcTexCoordIndex;
 					if (sharedTexCoord || usedTexCoords.has(dstTexCoordIndex)) {
 						dstTexCoordIndex = 0;
@@ -479,4 +481,13 @@ export function textureAtlas(_options: TextureAtlasOptions): Transform {
 		}
 		logger.debug(`${NAME}: Complete.`);
 	});
+}
+
+function isMetadataTexCoord(document: Document, material: Material, texCoord: number): boolean {
+	for (const mesh of document.getRoot().listMeshes()) {
+		for (const prim of mesh.listPrimitives()) {
+			if (prim.getMaterial() === material && listMetadataTexCoords(prim).has(texCoord)) return true;
+		}
+	}
+	return false;
 }

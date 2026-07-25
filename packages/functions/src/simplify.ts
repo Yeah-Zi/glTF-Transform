@@ -4,6 +4,7 @@ import { compactAttribute, compactPrimitive } from './compact-primitive.js';
 import { convertPrimitiveToTriangles } from './convert-primitive-mode.js';
 import { dequantizeAttributeArray } from './dequantize.js';
 import { getPrimitiveVertexCount, VertexCountMethod } from './get-vertex-count.js';
+import { hasPrimitiveMetadata } from './metadata-utils.js';
 import { unweldPrimitive } from './unweld.js';
 import {
 	assignDefaults,
@@ -185,8 +186,8 @@ export function simplifyPrimitiveWithError(prim: Primitive, _options: SimplifyOp
 	const graph = prim.getGraph();
 	const document = Document.fromGraph(graph)!;
 	const logger = document.getLogger();
-	if (prim.getExtension('EXT_mesh_features') && prim.getMode() !== POINTS) {
-		logger.warn(`${NAME}: Skipping primitive with EXT_mesh_features to preserve feature boundaries.`);
+	if (hasPrimitiveMetadata(prim) && prim.getMode() !== POINTS) {
+		logger.warn(`${NAME}: Skipping primitive with feature or structural metadata to preserve metadata boundaries.`);
 		return { primitive: prim, error: 0 };
 	}
 

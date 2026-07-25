@@ -1,4 +1,5 @@
 import type { Extension } from '@gltf-transform/core';
+import { EXTInstanceFeatures } from './ext-instance-features/index.js';
 import { EXTMeshFeatures } from './ext-mesh-features/index.js';
 import { EXTMeshGPUInstancing } from './ext-mesh-gpu-instancing/index.js';
 import { EXTMeshoptCompression } from './ext-meshopt-compression/index.js';
@@ -58,6 +59,7 @@ export const KHRONOS_EXTENSIONS: (typeof Extension)[] = [
 ];
 
 export const ALL_EXTENSIONS: (typeof Extension)[] = [
+	EXTInstanceFeatures,
 	EXTMeshGPUInstancing,
 	EXTMeshFeatures,
 	EXTMeshoptCompression,
@@ -67,6 +69,7 @@ export const ALL_EXTENSIONS: (typeof Extension)[] = [
 	...KHRONOS_EXTENSIONS,
 ];
 
+export * from './ext-instance-features/index.js';
 export * from './ext-mesh-features/index.js';
 export * from './ext-mesh-gpu-instancing/index.js';
 export * from './ext-mesh-gpu-instancing/index.js';

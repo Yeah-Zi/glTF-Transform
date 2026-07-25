@@ -1,4 +1,5 @@
-import { MathUtils, type mat4, type Node } from '@gltf-transform/core';
+import { Document, MathUtils, type mat4, type Node, type vec3, type vec4 } from '@gltf-transform/core';
+import type { InstancedMesh } from '@gltf-transform/extensions';
 import { multiply as multiplyMat4 } from 'gl-matrix/mat4';
 import { transformMesh } from './transform-mesh.js';
 
@@ -39,7 +40,12 @@ export function clearNodeTransform(node: Node): Node {
 	const localMatrix = node.getMatrix();
 
 	if (mesh && !MathUtils.eq(localMatrix, IDENTITY)) {
-		transformMesh(mesh, localMatrix);
+		const batch = node.getExtension<InstancedMesh>('EXT_mesh_gpu_instancing');
+		if (batch) {
+			node.setExtension('EXT_mesh_gpu_instancing', transformBatch(node, batch, localMatrix));
+		} else {
+			transformMesh(mesh, localMatrix);
+		}
 	}
 
 	for (const child of node.listChildren()) {
@@ -49,4 +55,52 @@ export function clearNodeTransform(node: Node): Node {
 	}
 
 	return node.setMatrix(IDENTITY);
+}
+
+function transformBatch(node: Node, batch: InstancedMesh, nodeMatrix: mat4): InstancedMesh {
+	const document = Document.fromGraph(node.getGraph())!;
+	const template = batch.listAttributes()[0]!;
+	const instanceCount = template.getCount();
+	const translation = document
+		.createAccessor()
+		.setType('VEC3')
+		.setArray(new Float32Array(instanceCount * 3))
+		.setBuffer(template.getBuffer());
+	const rotation = document
+		.createAccessor()
+		.setType('VEC4')
+		.setArray(new Float32Array(instanceCount * 4))
+		.setBuffer(template.getBuffer());
+	const scale = document
+		.createAccessor()
+		.setType('VEC3')
+		.setArray(new Float32Array(instanceCount * 3))
+		.setBuffer(template.getBuffer());
+	const srcTranslation = batch.getAttribute('TRANSLATION');
+	const srcRotation = batch.getAttribute('ROTATION');
+	const srcScale = batch.getAttribute('SCALE');
+	const t = [0, 0, 0] as vec3;
+	const r = [0, 0, 0, 1] as vec4;
+	const s = [1, 1, 1] as vec3;
+	const instanceMatrix = [...IDENTITY] as mat4;
+
+	for (let i = 0; i < instanceCount; i++) {
+		MathUtils.compose(
+			srcTranslation ? (srcTranslation.getElement(i, t) as vec3) : [0, 0, 0],
+			srcRotation ? (srcRotation.getElement(i, r) as vec4) : [0, 0, 0, 1],
+			srcScale ? (srcScale.getElement(i, s) as vec3) : [1, 1, 1],
+			instanceMatrix,
+		);
+		multiplyMat4(instanceMatrix, nodeMatrix, instanceMatrix);
+		MathUtils.decompose(instanceMatrix, t, r, s);
+		translation.setElement(i, t);
+		rotation.setElement(i, r);
+		scale.setElement(i, s);
+	}
+
+	return batch
+		.clone()
+		.setAttribute('TRANSLATION', translation)
+		.setAttribute('ROTATION', rotation)
+		.setAttribute('SCALE', scale);
 }

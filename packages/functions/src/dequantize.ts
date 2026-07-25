@@ -8,6 +8,7 @@ import {
 	type TypedArray,
 } from '@gltf-transform/core';
 import { KHRMeshQuantization } from '@gltf-transform/extensions';
+import { listPropertyAttributeSemantics } from './metadata-utils.js';
 import { assignDefaults, createTransform } from './utils.js';
 
 const NAME = 'dequantize';
@@ -74,10 +75,11 @@ export function dequantize(_options: DequantizeOptions = DEQUANTIZE_DEFAULTS): T
  */
 export function dequantizePrimitive(prim: Primitive, _options: DequantizeOptions = DEQUANTIZE_DEFAULTS): void {
 	const options = assignDefaults(DEQUANTIZE_DEFAULTS, _options);
+	const metadataSemantics = listPropertyAttributeSemantics(prim);
 
 	for (const semantic of prim.listSemantics()) {
 		// EXT_mesh_features requires unsigned, non-normalized integer attributes.
-		if (semantic.startsWith('_FEATURE_ID_')) continue;
+		if (semantic.startsWith('_FEATURE_ID_') || metadataSemantics.has(semantic)) continue;
 		if (options.pattern.test(semantic)) {
 			dequantizeAttribute(prim.getAttribute(semantic)!);
 		}

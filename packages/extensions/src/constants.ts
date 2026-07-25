@@ -1,4 +1,5 @@
 export const EXT_MESH_GPU_INSTANCING = 'EXT_mesh_gpu_instancing';
+export const EXT_INSTANCE_FEATURES = 'EXT_instance_features';
 export const EXT_MESH_FEATURES = 'EXT_mesh_features';
 export const EXT_MESHOPT_COMPRESSION = 'EXT_meshopt_compression';
 export const EXT_STRUCTURAL_METADATA = 'EXT_structural_metadata';

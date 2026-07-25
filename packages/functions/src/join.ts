@@ -14,6 +14,7 @@ import { invert, multiply } from 'gl-matrix/mat4';
 import { compactPrimitive } from './compact-primitive.js';
 import { dequantizeAttribute } from './dequantize.js';
 import { joinPrimitives } from './join-primitives.js';
+import { hasPrimitiveMetadata } from './metadata-utils.js';
 import { prune } from './prune.js';
 import { transformPrimitive } from './transform-primitive.js';
 import {
@@ -179,7 +180,7 @@ function _joinLevel(document: Document, parent: Node | Scene, options: Required<
 
 		for (const prim of mesh.listPrimitives()) {
 			// Joining changes implicit feature IDs and cannot merge primitive-level feature definitions.
-			if (prim.getExtension('EXT_mesh_features')) continue;
+			if (hasPrimitiveMetadata(prim)) continue;
 
 			// Skip prims with morph targets; unsupported.
 			if (prim.listTargets().length > 0) continue;

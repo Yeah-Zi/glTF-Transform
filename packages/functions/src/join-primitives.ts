@@ -5,6 +5,7 @@ import {
 	type Primitive,
 	type TypedArray,
 } from '@gltf-transform/core';
+import { hasPrimitiveMetadata } from './metadata-utils.js';
 import {
 	assignDefaults,
 	createIndicesEmpty,
@@ -50,8 +51,8 @@ export function joinPrimitives(prims: Primitive[], _options: JoinPrimitiveOption
 	const templatePrim = prims[0]!;
 	const document = Document.fromGraph(templatePrim.getGraph())!;
 
-	if (prims.some((prim) => prim.getExtension('EXT_mesh_features'))) {
-		throw new Error('Primitives using EXT_mesh_features cannot be joined without changing feature semantics.');
+	if (prims.some(hasPrimitiveMetadata)) {
+		throw new Error('Primitives using feature or structural metadata cannot be joined without changing metadata semantics.');
 	}
 
 	// (1) Validation.

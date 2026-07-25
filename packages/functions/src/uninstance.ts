@@ -43,6 +43,10 @@ export function uninstance(_options: UninstanceOptions = UNINSTANCE_DEFAULTS): T
 		for (const srcNode of document.getRoot().listNodes()) {
 			const batch = srcNode.getExtension<InstancedMesh>('EXT_mesh_gpu_instancing');
 			if (!batch) continue;
+			if (srcNode.getExtension('EXT_instance_features')) {
+				logger.warn(`${NAME}: Skipping node with EXT_instance_features to preserve instance feature IDs.`);
+				continue;
+			}
 
 			// For each instance, attach a new Node under the source Node.
 			for (const instanceNode of createInstanceNodes(srcNode)) {
@@ -64,7 +68,9 @@ export function uninstance(_options: UninstanceOptions = UNINSTANCE_DEFAULTS): T
 			}
 		}
 
-		document.disposeExtension('EXT_mesh_gpu_instancing');
+		if (!root.listNodes().some((node) => node.getExtension('EXT_mesh_gpu_instancing'))) {
+			document.disposeExtension('EXT_mesh_gpu_instancing');
+		}
 
 		logger.debug(`${NAME}: Complete.`);
 	});
@@ -92,6 +98,9 @@ export function uninstance(_options: UninstanceOptions = UNINSTANCE_DEFAULTS): T
  * ```
  */
 export function createInstanceNodes(batchNode: Node): Node[] {
+	if (batchNode.getExtension('EXT_instance_features')) {
+		throw new Error('Cannot unpack EXT_instance_features without changing instance feature semantics.');
+	}
 	const batch = batchNode.getExtension<InstancedMesh>('EXT_mesh_gpu_instancing');
 	if (!batch) return [];
 

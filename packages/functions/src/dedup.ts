@@ -13,6 +13,7 @@ import {
 	type Texture,
 	type Transform,
 } from '@gltf-transform/core';
+import type { InstancedMesh } from '@gltf-transform/extensions';
 import { assignDefaults, createTransform, shallowEqualsArray } from './utils.js';
 
 const NAME = 'dedup';
@@ -39,7 +40,8 @@ const DEDUP_DEFAULTS: Required<DedupOptions> = {
  * Removes duplicate {@link Accessor}, {@link Mesh}, {@link Texture}, and {@link Material}
  * properties. Partially based on a
  * [gist by mattdesl](https://gist.github.com/mattdesl/aea40285e2d73916b6b9101b36d84da8). Only
- * accessors in mesh primitives, morph targets, and animation samplers are processed.
+ * accessors in mesh primitives, morph targets, animation samplers, and individual GPU instance
+ * batches are processed.
  *
  * Example:
  *
@@ -84,6 +86,7 @@ function dedupAccessors(document: Document): void {
 	const attributeMap = new Map<string, Set<Accessor>>();
 	const inputMap = new Map<string, Set<Accessor>>();
 	const outputMap = new Map<string, Set<Accessor>>();
+	const instanceMaps = new Map<InstancedMesh, Map<string, Set<Accessor>>>();
 
 	const meshes = document.getRoot().listMeshes();
 	meshes.forEach((mesh) => {
@@ -98,6 +101,14 @@ function dedupAccessors(document: Document): void {
 			hashAccessor(sampler.getInput(), inputMap);
 			hashAccessor(sampler.getOutput(), outputMap);
 		}
+	}
+
+	for (const node of document.getRoot().listNodes()) {
+		const batch = node.getExtension<InstancedMesh>('EXT_mesh_gpu_instancing');
+		if (!batch) continue;
+		const batchMap = new Map<string, Set<Accessor>>();
+		for (const accessor of batch.listAttributes()) hashAccessor(accessor, batchMap);
+		instanceMaps.set(batch, batchMap);
 	}
 
 	// Add accessor to the appropriate hash group. Hashes are _non-unique_,
@@ -149,8 +160,15 @@ function dedupAccessors(document: Document): void {
 			detectDuplicates(Array.from(hashGroup), duplicates);
 		}
 	}
+	const instanceDuplicates = new Map<Accessor, Accessor>();
+	for (const batchMap of instanceMaps.values()) {
+		for (const hashGroup of batchMap.values()) {
+			total += hashGroup.size;
+			detectDuplicates(Array.from(hashGroup), instanceDuplicates);
+		}
+	}
 
-	logger.debug(`${NAME}: Merged ${duplicates.size} of ${total} accessors.`);
+	logger.debug(`${NAME}: Merged ${duplicates.size + instanceDuplicates.size} of ${total} accessors.`);
 
 	// Dissolve duplicate vertex attributes and indices.
 	meshes.forEach((mesh) => {
@@ -181,7 +199,16 @@ function dedupAccessors(document: Document): void {
 		}
 	}
 
+	for (const batch of instanceMaps.keys()) {
+		for (const accessor of batch.listAttributes()) {
+			if (instanceDuplicates.has(accessor)) {
+				batch.swap(accessor, instanceDuplicates.get(accessor)!);
+			}
+		}
+	}
+
 	Array.from(duplicates.keys()).forEach((accessor) => accessor.dispose());
+	Array.from(instanceDuplicates.keys()).forEach((accessor) => accessor.dispose());
 }
 
 function dedupMeshes(document: Document, options: Required<DedupOptions>): void {

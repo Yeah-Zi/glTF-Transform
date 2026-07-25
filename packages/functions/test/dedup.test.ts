@@ -1,5 +1,5 @@
 import { Document, NodeIO, type Property, PropertyType } from '@gltf-transform/core';
-import { KHRMaterialsTransmission } from '@gltf-transform/extensions';
+import { EXTInstanceFeatures, EXTMeshGPUInstancing, KHRMaterialsTransmission } from '@gltf-transform/extensions';
 import { dedup } from '@gltf-transform/functions';
 import test from 'ava';
 import ndarray from 'ndarray';
@@ -52,6 +52,39 @@ test('accessors - animation', (t) => {
 	t.truthy(sampler3.getOutput() !== b, 'no mixing input/output');
 	t.truthy(prim.getAttribute('POSITION') !== a, 'no mixing sampler/attribute');
 	t.truthy(prim.getAttribute('POSITION') !== b, 'no mixing sampler/attribute');
+});
+
+test('accessors - instance features within a batch', (t) => {
+	const document = new Document();
+	const featureID0 = document
+		.createAccessor()
+		.setType('SCALAR')
+		.setArray(new Uint8Array([0, 1]));
+	const featureID1 = featureID0.clone();
+	const batch = document
+		.createExtension(EXTMeshGPUInstancing)
+		.createInstancedMesh()
+		.setAttribute('_FEATURE_ID_0', featureID0)
+		.setAttribute('_FEATURE_ID_1', featureID1);
+	const featureExtension = document.createExtension(EXTInstanceFeatures);
+	const features = featureExtension
+		.createInstanceFeatures()
+		.addFeatureID(featureExtension.createFeatureID().setFeatureCount(2).setAttribute(0))
+		.addFeatureID(featureExtension.createFeatureID().setFeatureCount(2).setAttribute(1));
+	document
+		.createScene()
+		.addChild(
+			document
+				.createNode()
+				.setExtension('EXT_mesh_gpu_instancing', batch)
+				.setExtension('EXT_instance_features', features),
+		);
+
+	dedup()(document);
+
+	t.is(batch.getAttribute('_FEATURE_ID_0'), batch.getAttribute('_FEATURE_ID_1'));
+	t.false(featureID0.isDisposed());
+	t.true(featureID1.isDisposed());
 });
 
 test('materials', (t) => {

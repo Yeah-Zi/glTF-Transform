@@ -1,4 +1,5 @@
 import { type Document, type ILogger, PropertyType, type Transform } from '@gltf-transform/core';
+import type { InstancedMesh } from '@gltf-transform/extensions';
 import { prune } from './prune.js';
 import { assignDefaults, createTransform, deepListAttributes } from './utils.js';
 
@@ -75,6 +76,13 @@ function partitionMeshes(doc: Document, logger: ILogger, options: Required<Parti
 			for (const prim of mesh.listPrimitives()) {
 				prim.getIndices()?.setBuffer(buffer);
 				for (const attribute of deepListAttributes(prim)) {
+					attribute.setBuffer(buffer);
+				}
+			}
+
+			for (const node of mesh.listParents()) {
+				const batch = node.getExtension<InstancedMesh>('EXT_mesh_gpu_instancing');
+				for (const attribute of batch?.listAttributes() || []) {
 					attribute.setBuffer(buffer);
 				}
 			}
