@@ -48,6 +48,19 @@ test('factor-only baseColor/emissive', async (t) => {
 	);
 });
 
+test('requireTextureCoordinates', async (t) => {
+	const document = new Document().setLogger(logger);
+	const material = document.createMaterial().setBaseColorFactor([0.5, 0.25, 1, 1]);
+	const position = document.createAccessor().setType('VEC3').setArray(new Float32Array(6));
+	const primitive = document.createPrimitive().setMaterial(material).setAttribute('POSITION', position);
+	document.createScene().addChild(document.createNode().setMesh(document.createMesh().addPrimitive(primitive)));
+
+	await document.transform(bakeFactors({ targets: ['baseColor'], requireTextureCoordinates: true }));
+
+	t.is(material.getBaseColorTexture(), null);
+	t.deepEqual(material.getBaseColorFactor(), [0.5, 0.25, 1, 1]);
+});
+
 test('metallicRoughness mixing', async (t) => {
 	const document = new Document().setLogger(logger);
 	const px = ndarray(new Uint8Array(1 * 1 * 4), [1, 1, 4]);
@@ -57,7 +70,11 @@ test('metallicRoughness mixing', async (t) => {
 	px.set(0, 0, 3, 255);
 	const image = await savePixels(px, 'image/png');
 	const texture = document.createTexture('MR').setImage(image).setMimeType('image/png');
-	const material = document.createMaterial().setMetallicRoughnessTexture(texture).setMetallicFactor(0.25).setRoughnessFactor(0.5);
+	const material = document
+		.createMaterial()
+		.setMetallicRoughnessTexture(texture)
+		.setMetallicFactor(0.25)
+		.setRoughnessFactor(0.5);
 	await document.transform(bakeFactors({ targets: ['metallicRoughness'] }));
 	const dst = material.getMetallicRoughnessTexture()!;
 	const out = await getPixels(dst.getImage(), dst.getMimeType());
@@ -76,7 +93,10 @@ test('baseColor mixing', async (t) => {
 	const image = await savePixels(px, 'image/png');
 	const texture = document.createTexture('BC').setImage(image).setMimeType('image/png');
 	const factor = [0.5, 2.0, 1.0, 0.5] as const;
-	const material = document.createMaterial().setBaseColorTexture(texture).setBaseColorFactor(factor as any);
+	const material = document
+		.createMaterial()
+		.setBaseColorTexture(texture)
+		.setBaseColorFactor(factor as any);
 	await document.transform(bakeFactors({ targets: ['baseColor'] }));
 	const dst = material.getBaseColorTexture()!;
 	const out = await getPixels(dst.getImage(), dst.getMimeType());
@@ -91,6 +111,6 @@ test('baseColor mixing', async (t) => {
 	t.is(out.get(0, 0, 0), Math.round((s[0] as number) * 255), 'R');
 	t.is(out.get(0, 0, 1), Math.round((s[1] as number) * 255), 'G');
 	t.is(out.get(0, 0, 2), Math.round((s[2] as number) * 255), 'B');
-	t.is(out.get(0, 0, 3), Math.round((1.0 * factor[3]) * 255), 'A');
+	t.is(out.get(0, 0, 3), Math.round(1.0 * factor[3] * 255), 'A');
 	t.deepEqual(material.getBaseColorFactor(), [1, 1, 1, 1], 'factor reset');
 });

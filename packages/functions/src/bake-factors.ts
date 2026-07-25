@@ -1,4 +1,4 @@
-import { ColorUtils, type Document, type Texture, TextureInfo, type Transform, type vec3, type vec4 } from '@gltf-transform/core';
+import { ColorUtils, type Document, type Material, type Texture, TextureInfo, type Transform, type vec3, type vec4 } from '@gltf-transform/core';
 import ndarray from 'ndarray';
 import { savePixels } from 'ndarray-pixels';
 import { assignDefaults, createTransform, rewriteTexture } from './utils.js';
@@ -11,6 +11,7 @@ export interface BakeFactorsOptions {
 	targets?: Target[];
 	resolution?: 'source' | 'max' | { width: number; height: number };
 	keepFactors?: boolean;
+	requireTextureCoordinates?: boolean;
 	mimeType?: 'image/png' | 'image/jpeg';
 	nameSuffix?: string;
 }
@@ -19,6 +20,7 @@ export const BAKE_DEFAULTS: Required<BakeFactorsOptions> = {
 	targets: ['baseColor', 'emissive', 'metallicRoughness'],
 	resolution: 'source',
 	keepFactors: false,
+	requireTextureCoordinates: false,
 	mimeType: 'image/png',
 	nameSuffix: '_baked',
 };
@@ -33,7 +35,8 @@ export function bakeFactors(_options: BakeFactorsOptions = BAKE_DEFAULTS): Trans
 				const info = material.getBaseColorTextureInfo();
 				const factor = material.getBaseColorFactor().slice() as vec4;
 				const hasFactor = factor.some((v, i) => v !== (i === 3 ? 1 : 1));
-				if (tex || hasFactor) {
+				const hasTexCoords = materialHasTexCoords(doc, material, info?.getTexCoord() ?? 0);
+				if ((tex || hasFactor) && (!options.requireTextureCoordinates || hasTexCoords)) {
 					if (tex) {
 						const dst = doc.createTexture((tex.getName() || 'BaseColor') + options.nameSuffix).setURI('BaseColor_baked.png');
 						await rewriteTexture(tex, dst, (pixels, i, j) => {
@@ -86,7 +89,8 @@ export function bakeFactors(_options: BakeFactorsOptions = BAKE_DEFAULTS): Trans
 				const info = material.getEmissiveTextureInfo();
 				const f3 = material.getEmissiveFactor().slice() as vec3;
 				const hasFactor = f3.some((v) => v !== 0);
-				if (hasFactor) {
+				const hasTexCoords = materialHasTexCoords(doc, material, info?.getTexCoord() ?? 0);
+				if (hasFactor && (!options.requireTextureCoordinates || hasTexCoords)) {
 					if (tex) {
 						const dst = doc.createTexture((tex.getName() || 'Emissive') + options.nameSuffix).setURI('Emissive_baked.png');
 						await rewriteTexture(tex, dst, (pixels, i, j) => {
@@ -139,7 +143,8 @@ export function bakeFactors(_options: BakeFactorsOptions = BAKE_DEFAULTS): Trans
 				const metallic = material.getMetallicFactor();
 				const roughness = material.getRoughnessFactor();
 				const hasFactor = metallic !== 1 || roughness !== 1;
-				if (tex || hasFactor) {
+				const hasTexCoords = materialHasTexCoords(doc, material, info?.getTexCoord() ?? 0);
+				if ((tex || hasFactor) && (!options.requireTextureCoordinates || hasTexCoords)) {
 					if (tex) {
 						const dst = doc.createTexture((tex.getName() || 'MetallicRoughness') + options.nameSuffix).setURI('MetallicRoughness_baked.png');
 						await rewriteTexture(tex, dst, (pixels, i, j) => {
@@ -183,4 +188,16 @@ export function bakeFactors(_options: BakeFactorsOptions = BAKE_DEFAULTS): Trans
 			}
 		}
 	});
+}
+
+function materialHasTexCoords(doc: Document, material: Material, texCoordIndex: number): boolean {
+	let used = false;
+	for (const mesh of doc.getRoot().listMeshes()) {
+		for (const prim of mesh.listPrimitives()) {
+			if (prim.getMaterial() !== material) continue;
+			used = true;
+			if (!prim.getAttribute(`TEXCOORD_${texCoordIndex}`)) return false;
+		}
+	}
+	return used;
 }

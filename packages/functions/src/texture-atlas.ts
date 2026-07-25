@@ -1,5 +1,6 @@
 import {
 	Document,
+	type Primitive,
 	type Transform,
 	type vec2,
 	type Material,
@@ -9,6 +10,7 @@ import {
 import { KHRTextureTransform, type Transform as TextureTransform } from '@gltf-transform/extensions';
 import type sharp from 'sharp';
 import { applyTextureTransformUV, bakeTextureTransforms } from './bake-texture-transform.js';
+import { listTextureInfoByMaterial } from './list-texture-info.js';
 import { assignDefaults, createTransform, fitPowerOfTwo, fitWithin, isUsed } from './utils.js';
 const NAME = 'textureAtlas';
 type AtlasType = 'baseColor' | 'normal' | 'metallicRoughness' | 'occlusion' | 'emissive';
@@ -258,14 +260,42 @@ export function textureAtlas(_options: TextureAtlasOptions): Transform {
 		const logger = document.getLogger();
 		const encoder = options.encoder as typeof sharp | null;
 		const useTextureTransform = options.remap === 'texture_transform';
+		const remappedTexCoords = new Map<Material, Set<number>>();
+		const uvSnapshots = new WeakMap<Primitive, Map<number, Float32Array>>();
 		if (!useTextureTransform) {
 			bakeTextureTransforms(document);
+			for (const mesh of document.getRoot().listMeshes()) {
+				for (const prim of mesh.listPrimitives()) {
+					const snapshots = new Map<number, Float32Array>();
+					for (const semantic of prim.listSemantics()) {
+						if (!semantic.startsWith('TEXCOORD_')) continue;
+						const texCoordIndex = Number(semantic.replace('TEXCOORD_', ''));
+						const attribute = prim.getAttribute(semantic)!;
+						const snapshot = new Float32Array(attribute.getCount() * 2);
+						const uv: number[] = [];
+						for (let i = 0; i < attribute.getCount(); i++) {
+							attribute.getElement(i, uv);
+							snapshot[i * 2] = uv[0];
+							snapshot[i * 2 + 1] = uv[1];
+						}
+						snapshots.set(texCoordIndex, snapshot);
+					}
+					uvSnapshots.set(prim, snapshots);
+				}
+			}
 		}
-		const transformExt = useTextureTransform ? document.createExtension(KHRTextureTransform).setRequired(true) : null;
+		const usedMaterials = new Set<Material>();
+		for (const mesh of document.getRoot().listMeshes()) {
+			for (const prim of mesh.listPrimitives()) {
+				const material = prim.getMaterial();
+				if (material) usedMaterials.add(material);
+			}
+		}
+		let transformExt: KHRTextureTransform | null = null;
 		for (const type of options.types) {
 			const contentMax = options.maxSize - options.padding * 2;
 			const sprites: Sprite[] = [];
-			for (const material of document.getRoot().listMaterials()) {
+			for (const material of usedMaterials) {
 				const { texture } = getSlot(material, type);
 				if (!texture) continue;
 				if (materialUsesTiledUVs(document, material, type)) {
@@ -353,7 +383,8 @@ export function textureAtlas(_options: TextureAtlasOptions): Transform {
 				const atlasSize = atlas.getSize()!;
 				const offset: vec2 = [pl.x / atlasSize[0], pl.y / atlasSize[1]];
 				const scale: vec2 = [pl.w / atlasSize[0], pl.h / atlasSize[1]];
-				if (useTextureTransform && transformExt) {
+				if (useTextureTransform) {
+					transformExt ||= document.createExtension(KHRTextureTransform).setRequired(true);
 					const tr = transformExt.createTransform();
 					tr.setOffset(offset);
 					tr.setScale(scale);
@@ -361,37 +392,45 @@ export function textureAtlas(_options: TextureAtlasOptions): Transform {
 				} else {
 					const wrapS = info ? info.getWrapS() : undefined;
 					const wrapT = info ? info.getWrapT() : undefined;
+					const srcTexCoordIndex = info ? Math.max(0, info.getTexCoord()) : 0;
+					const srcSemantic = `TEXCOORD_${srcTexCoordIndex}`;
 					info?.setExtension(KHRTextureTransform.EXTENSION_NAME, null);
-					let newTexCoordIndex = 0;
-					for (const mesh of document.getRoot().listMeshes()) {
-						for (const prim of mesh.listPrimitives()) {
-							if (prim.getMaterial() !== sprites[i].material) continue;
-							for (const semanticName of prim.listSemantics()) {
-								if (semanticName.startsWith('TEXCOORD_')) {
-									const idx = Number(semanticName.replace('TEXCOORD_', ''));
-									newTexCoordIndex = Math.max(newTexCoordIndex, idx + 1);
+					const material = sprites[i].material;
+					const usedTexCoords = remappedTexCoords.get(material) || new Set<number>();
+					const sharedTexCoord = listTextureInfoByMaterial(material).some(
+						(otherInfo) => otherInfo !== info && otherInfo.getTexCoord() === srcTexCoordIndex,
+					);
+					let dstTexCoordIndex = srcTexCoordIndex;
+					if (sharedTexCoord || usedTexCoords.has(dstTexCoordIndex)) {
+						dstTexCoordIndex = 0;
+						for (const mesh of document.getRoot().listMeshes()) {
+							for (const prim of mesh.listPrimitives()) {
+								if (prim.getMaterial() !== material) continue;
+								for (const semanticName of prim.listSemantics()) {
+									if (semanticName.startsWith('TEXCOORD_')) {
+										const idx = Number(semanticName.replace('TEXCOORD_', ''));
+										dstTexCoordIndex = Math.max(dstTexCoordIndex, idx + 1);
+									}
 								}
 							}
 						}
 					}
-					if (info) info.setTexCoord(newTexCoordIndex);
-					const newSemantic = `TEXCOORD_${newTexCoordIndex}`;
+					usedTexCoords.add(dstTexCoordIndex);
+					remappedTexCoords.set(material, usedTexCoords);
+					if (info) info.setTexCoord(dstTexCoordIndex);
+					const dstSemantic = `TEXCOORD_${dstTexCoordIndex}`;
 					for (const mesh of document.getRoot().listMeshes()) {
 						for (const prim of mesh.listPrimitives()) {
-							if (prim.getMaterial() !== sprites[i].material) continue;
-							const srcIndex = info ? Math.max(0, info.getTexCoord()) : 0;
-							const srcSemantic = `TEXCOORD_${srcIndex}`;
-							const srcAttr =
-								prim.getAttribute(srcSemantic) ||
-								prim.getAttribute('TEXCOORD_0');
+							if (prim.getMaterial() !== material) continue;
+							const srcAttr = prim.getAttribute(srcSemantic) || prim.getAttribute('TEXCOORD_0');
 							if (!srcAttr) continue;
+							const snapshots = uvSnapshots.get(prim)!;
+							const srcArray = snapshots.get(srcTexCoordIndex) || snapshots.get(0)!;
 							const count = srcAttr.getCount();
 							const dst = document.createAccessor().setType('VEC2').setArray(new Float32Array(count * 2));
-							const el: number[] = [];
 							for (let j = 0; j < count; j++) {
-								const uv = srcAttr.getElement(j, el) as [number, number];
-								let u = uv[0];
-								let v = uv[1];
+								let u = srcArray[j * 2];
+								let v = srcArray[j * 2 + 1];
 								if (wrapS === 10497) {
 									u = u - Math.floor(u);
 								} else if (wrapS === 33071) {
@@ -416,8 +455,8 @@ export function textureAtlas(_options: TextureAtlasOptions): Transform {
 								const tv = v * scale[1] + offset[1];
 								dst.setElement(j, [tu, tv]);
 							}
-							prim.setAttribute(newSemantic, dst);
-							for (let j = newTexCoordIndex - 1; j >= 0; j--) {
+							prim.setAttribute(dstSemantic, dst);
+							for (let j = dstTexCoordIndex - 1; j >= 0; j--) {
 								const s = `TEXCOORD_${j}`;
 								if (!prim.getAttribute(s)) {
 									prim.setAttribute(s, dst);

@@ -3,6 +3,7 @@ import { basename, dirname, join as joinPath, resolve } from 'node:path';
 import { tmpdir } from 'node:os';
 import { type NodeIO, type Transform, uuid } from '@gltf-transform/core';
 import {
+	bakeFactors,
 	dedup,
 	flatten,
 	INSTANCE_DEFAULTS,
@@ -91,13 +92,21 @@ export function buildTileTransforms(options: Required<TileOptions>, encoder: typ
 			palette({
 				min: options.paletteMin,
 				blockSize: options.paletteBlockSize,
-				cleanup: false,
+				cleanup: true,
 				keepAttributes: !options.prune || !options.pruneAttributes,
 			}),
 		);
 	}
 
 	if (options.atlas && options.atlasTypes.length > 0) {
+		const factorTargets = options.atlasTypes.filter(
+			(type): type is 'baseColor' | 'emissive' | 'metallicRoughness' =>
+				type === 'baseColor' || type === 'emissive' || type === 'metallicRoughness',
+		);
+		if (factorTargets.length > 0) {
+			transforms.push(bakeFactors({ targets: factorTargets, requireTextureCoordinates: true }));
+		}
+		if (options.dedup) transforms.push(dedup());
 		transforms.push(
 			textureAtlas({
 				encoder,
@@ -148,6 +157,19 @@ export function buildTileTransforms(options: Required<TileOptions>, encoder: typ
 	if (options.quantize) transforms.push(quantize());
 
 	if (options.ktx2) {
+		transforms.push(
+			toktx({
+				encoder,
+				resize: [options.textureSize, options.textureSize],
+				mode: Mode.UASTC,
+				pattern: /^baseColor-atlas-\d+$/,
+				slots: /baseColorTexture/,
+				level: 4,
+				rdo: false,
+				mipmaps: false,
+				limitInputPixels: options.limitInputPixels,
+			}),
+		);
 		const slotsUASTC = micromatch.makeRe(
 			'{normalTexture,occlusionTexture,metallicRoughnessTexture}',
 			MICROMATCH_OPTIONS,

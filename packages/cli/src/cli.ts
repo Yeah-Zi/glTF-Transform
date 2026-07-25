@@ -255,14 +255,17 @@ certain aspects of data layout may change slightly with this process:
 
 // TILE
 program
-	.command('tile', 'Optimize tile GLB: palette → atlas → dedup/join/quantize/ktx2')
+	.command('tile', 'Optimize tile GLB: palette → bake-factors → dedup → atlas → dedup → instance/join/quantize/ktx2')
 	.help(
 		`
 Runs a tile-specific optimization pipeline in a single read/write pass:
 
-  1. palette   — merge solid-color materials for atlas grouping
-  2. atlas     — pack baseColor + normal textures into atlases
-  3. optimize  — dedup, instance, flatten, join, weld, prune, sparse,
+  1. palette      — merge solid-color materials for atlas grouping
+  2. bake-factors — bake scalar material factors into textures
+  3. dedup        — deduplicate materials and textures before atlas packing
+  4. atlas        — pack baseColor + normal textures into atlases
+  5. dedup        — deduplicate atlas outputs and cleanup again
+  6. optimize     — instance, flatten, join, weld, prune, sparse,
                  quantize, and KTX2
 
 Each step can be skipped with --<step> false (defaults to true):
