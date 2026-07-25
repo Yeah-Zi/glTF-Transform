@@ -141,6 +141,10 @@ export function quantize(_options: QuantizeOptions = QUANTIZE_DEFAULTS): Transfo
 		const logger = document.getLogger();
 		const root = document.getRoot();
 
+		if (document.hasExtension('KHR_mesh_primitive_restart')) {
+			throw new Error('quantize: Missing support for KHR_mesh_primitive_restart.');
+		}
+
 		// Compute vertex position quantization volume.
 		let nodeTransform: VectorTransform<vec3> | undefined;
 		if (options.quantizationVolume === 'scene') {
@@ -209,6 +213,8 @@ function quantizePrimitive(
 	const logger = document.getLogger();
 
 	for (const semantic of prim.listSemantics()) {
+		// EXT_mesh_features IDs are categorical integers, not quantizable values.
+		if (semantic.startsWith('_FEATURE_ID_')) continue;
 		if (!isTarget && !options.pattern.test(semantic)) continue;
 		if (isTarget && !options.patternTargets.test(semantic)) continue;
 

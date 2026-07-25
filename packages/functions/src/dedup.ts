@@ -189,9 +189,17 @@ function dedupMeshes(document: Document, options: Required<DedupOptions>): void 
 	const root = document.getRoot();
 
 	// Create Reference -> ID lookup table.
-	const refs = new Map<Accessor | Material, number>();
+	const refs = new Map<Property, number>();
 	root.listAccessors().forEach((accessor, index) => refs.set(accessor, index));
 	root.listMaterials().forEach((material, index) => refs.set(material, index));
+	let nextRef = refs.size;
+	for (const mesh of root.listMeshes()) {
+		for (const prim of mesh.listPrimitives()) {
+			for (const extension of prim.listExtensions()) {
+				if (!refs.has(extension)) refs.set(extension, nextRef++);
+			}
+		}
+	}
 
 	// For each mesh, create a hashkey.
 	const numMeshes = root.listMeshes().length;
@@ -350,13 +358,16 @@ function dedupSkins(document: Document, options: Required<DedupOptions>): void {
 }
 
 /** Generates a key unique to the content of a primitive or target. */
-function createPrimitiveKey(prim: Primitive | PrimitiveTarget, refs: Map<Accessor | Material, number>): string {
+function createPrimitiveKey(prim: Primitive | PrimitiveTarget, refs: Map<Property, number>): string {
 	const primKeyItems = [];
 	for (const semantic of prim.listSemantics()) {
 		const attribute = prim.getAttribute(semantic)!;
 		primKeyItems.push(semantic + ':' + refs.get(attribute));
 	}
 	if (prim instanceof Primitive) {
+		for (const extension of prim.listExtensions()) {
+			primKeyItems.push(`extension:${extension.extensionName}:${refs.get(extension)}`);
+		}
 		const indices = prim.getIndices();
 		if (indices) {
 			primKeyItems.push('indices:' + refs.get(indices));

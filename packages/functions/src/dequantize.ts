@@ -76,6 +76,8 @@ export function dequantizePrimitive(prim: Primitive, _options: DequantizeOptions
 	const options = assignDefaults(DEQUANTIZE_DEFAULTS, _options);
 
 	for (const semantic of prim.listSemantics()) {
+		// EXT_mesh_features requires unsigned, non-normalized integer attributes.
+		if (semantic.startsWith('_FEATURE_ID_')) continue;
 		if (options.pattern.test(semantic)) {
 			dequantizeAttribute(prim.getAttribute(semantic)!);
 		}

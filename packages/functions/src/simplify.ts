@@ -87,6 +87,10 @@ export function simplify(_options: SimplifyOptions): Transform {
 	return createTransform(NAME, async (document: Document): Promise<void> => {
 		const logger = document.getLogger();
 
+		if (document.hasExtension('KHR_mesh_primitive_restart')) {
+			throw new Error('simplify: Missing support for KHR_mesh_primitive_restart.');
+		}
+
 		await simplifier.ready;
 		await document.transform(weld({ overwrite: false }));
 
@@ -181,6 +185,10 @@ export function simplifyPrimitiveWithError(prim: Primitive, _options: SimplifyOp
 	const graph = prim.getGraph();
 	const document = Document.fromGraph(graph)!;
 	const logger = document.getLogger();
+	if (prim.getExtension('EXT_mesh_features') && prim.getMode() !== POINTS) {
+		logger.warn(`${NAME}: Skipping primitive with EXT_mesh_features to preserve feature boundaries.`);
+		return { primitive: prim, error: 0 };
+	}
 
 	switch (prim.getMode()) {
 		case POINTS:

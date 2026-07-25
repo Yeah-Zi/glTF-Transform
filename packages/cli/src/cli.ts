@@ -1,5 +1,6 @@
 import { readFile, writeFile } from 'node:fs/promises';
 import { createHash } from 'node:crypto';
+import { styleText } from 'node:util';
 import {
 	BufferUtils,
 	ImageUtils,
@@ -89,7 +90,7 @@ import {
 	type XMPOptions,
 	xmp,
 } from './transforms/index.js';
-import { dim, formatBytes, TableFormat, underline } from './utils/format.js';
+import { formatBytes, TableFormat } from './utils/format.js';
 import { gzip } from './utils/gzip.js';
 import { MICROMATCH_OPTIONS, regexFromArray } from './utils/match.js';
 import { type ValidateOptions, validate } from './validate.js';
@@ -127,7 +128,7 @@ To run the most common optimizations in one easy step, use the 'optimize' comman
 ▸ gltf-transform optimize <input> <output> --compress draco --texture-compress webp
 
 Defaults in the 'optimize' command may not be ideal for all scenes. Some of its
-features can be configured (${dim(`optimize --help`)}), or more advanced users may wish
+features can be configured (${styleText('dim', `optimize --help`)}), or more advanced users may wish
 to inspect their scenes then pick and choose optimizations.
 
 ▸ gltf-transform inspect <input>
@@ -140,11 +141,11 @@ issues as needed.
 		)
 		.help(
 			`
-${underline('Using glTF Transform for a personal project?')} That's great! Sponsorship is
+${styleText('underline', 'Using glTF Transform for a personal project?')} That's great! Sponsorship is
 neither expected nor required. Feel free to share screenshots if you've
 made something you're excited about — I enjoy seeing those!
 
-${underline('Using glTF Transform in for-profit work?')} That's wonderful! Your support is
+${styleText('underline', 'Using glTF Transform in for-profit work?')} That's wonderful! Your support is
 important to keep glTF Transform maintained, independent, and open source under
 MIT License. Please consider a subscription or GitHub sponsorship.
 
@@ -1921,7 +1922,7 @@ Examples:
 			.map((s) => s.trim())
 			.filter(Boolean);
 		const { default: encoder } = await import('sharp');
-		const { textureAtlas: textureAtlasLocal } = await import('../../functions/dist/index.mjs');
+		const { textureAtlas: textureAtlasLocal } = await import('../../functions/dist/index.js');
 		return Session.create(io, logger, args.input, args.output).transform(
 			textureAtlasLocal({
 				encoder,

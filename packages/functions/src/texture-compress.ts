@@ -177,6 +177,11 @@ export function textureCompress(_options: TextureCompressOptions): Transform {
 					`${textureIndex + 1}/${document.getRoot().listTextures().length}`;
 				const prefix = `${NAME}(${textureLabel})`;
 
+				if (isMetadataTexture(texture)) {
+					logger.debug(`${prefix}: Skipping feature/metadata data texture.`);
+					return;
+				}
+
 				// FILTER: Exclude textures that don't match (a) 'slots' or (b) expected formats.
 
 				if (!SUPPORTED_MIME_TYPES.includes(texture.getMimeType())) {
@@ -382,6 +387,13 @@ async function _encodeWithNdarrayPixels(
 
 function getFormat(texture: Texture): Format {
 	return getFormatFromMimeType(texture.getMimeType());
+}
+
+function isMetadataTexture(texture: Texture): boolean {
+	return texture.listParents().some((parent) => {
+		const extensionName = (parent as { extensionName?: string }).extensionName;
+		return extensionName === 'EXT_mesh_features' || extensionName === 'EXT_structural_metadata';
+	});
 }
 
 function getFormatFromMimeType(mimeType: string): Format {

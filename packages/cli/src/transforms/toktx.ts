@@ -192,6 +192,10 @@ export const toktx = function (options: ETC1SOptions | UASTCOptions): Transform 
 					`${textureIndex + 1}/${doc.getRoot().listTextures().length}`;
 				const prefix = `ktx:texture(${textureLabel})`;
 				logger.debug(`${prefix}: Slots → [${slots.join(', ')}]`);
+				if (isMetadataTexture(texture)) {
+					logger.debug(`${prefix}: Skipping feature/metadata data texture.`);
+					return;
+				}
 
 				// FILTER: Exclude textures that don't match (a) 'slots' or (b) expected formats.
 
@@ -458,6 +462,13 @@ export async function checkKTXSoftware(logger: ILogger): Promise<string> {
 	}
 
 	return version;
+}
+
+function isMetadataTexture(texture: Texture): boolean {
+	return texture.listParents().some((parent) => {
+		const extensionName = (parent as { extensionName?: string }).extensionName;
+		return extensionName === 'EXT_mesh_features' || extensionName === 'EXT_structural_metadata';
+	});
 }
 
 function isMultipleOfFour(value: number): boolean {

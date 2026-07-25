@@ -1,5 +1,7 @@
 export const EXT_MESH_GPU_INSTANCING = 'EXT_mesh_gpu_instancing';
+export const EXT_MESH_FEATURES = 'EXT_mesh_features';
 export const EXT_MESHOPT_COMPRESSION = 'EXT_meshopt_compression';
+export const EXT_STRUCTURAL_METADATA = 'EXT_structural_metadata';
 export const EXT_TEXTURE_WEBP = 'EXT_texture_webp';
 export const EXT_TEXTURE_AVIF = 'EXT_texture_avif';
 export const KHR_ACCESSOR_FLOAT16 = 'KHR_accessor_float16';
@@ -20,6 +22,7 @@ export const KHR_MATERIALS_TRANSMISSION = 'KHR_materials_transmission';
 export const KHR_MATERIALS_UNLIT = 'KHR_materials_unlit';
 export const KHR_MATERIALS_VOLUME = 'KHR_materials_volume';
 export const KHR_MATERIALS_VARIANTS = 'KHR_materials_variants';
+export const KHR_MESH_PRIMITIVE_RESTART = 'KHR_mesh_primitive_restart';
 export const KHR_MESH_QUANTIZATION = 'KHR_mesh_quantization';
 export const KHR_NODE_VISIBILITY = 'KHR_node_visibility';
 export const KHR_TEXTURE_BASISU = 'KHR_texture_basisu';

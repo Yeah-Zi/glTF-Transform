@@ -1,11 +1,11 @@
+import { styleText } from 'node:util';
 import { Document, FileUtils, Format, type NodeIO, type Transform, Verbosity } from '@gltf-transform/core';
 import type { KHRXMP, Packet } from '@gltf-transform/extensions';
 import { unpartition } from '@gltf-transform/functions';
 import { Listr, type ListrTask } from 'listr2';
-import { performance } from 'perf_hooks'; // global in Node.js v16+
 import { XMPContext } from './constants.js';
 import type { Logger } from './program.js';
-import { dim, formatBytes, formatLong } from './utils/format.js';
+import { formatBytes, formatLong } from './utils/format.js';
 
 /** Helper class for managing a CLI command session. */
 export class Session {
@@ -56,12 +56,8 @@ export class Session {
 
 		// Warn and remove lossy compression, to avoid increasing loss on round trip.
 		for (const extensionName of ['KHR_draco_mesh_compression', 'EXT_meshopt_compression']) {
-			const extension = document
-				.getRoot()
-				.listExtensionsUsed()
-				.find((extension) => extension.extensionName === extensionName);
-			if (extension) {
-				extension.dispose();
+			if (document.hasExtension(extensionName)) {
+				document.disposeExtension(extensionName);
 				this._logger.warn(`Decoded ${extensionName}. Further compression will be lossy.`);
 			}
 		}
@@ -83,7 +79,7 @@ export class Session {
 							return;
 						}
 						time = Math.round(performance.now() - time);
-						task.title = task.title.padEnd(20) + dim(` ${formatLong(time)}ms`);
+						task.title = task.title.padEnd(20) + styleText('dim', ` ${formatLong(time)}ms`);
 					},
 				});
 			}
